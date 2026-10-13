@@ -1,0 +1,870 @@
+/* ARGOS: estilos do visor.
+   Cores vêm de variáveis trocadas pelo tema; o canvas usa as mesmas. */
+
+/* ── Fontes (dentro do repositório, funcionam offline) ─────────────── */
+
+@font-face {
+  font-family: 'Orbitron';
+  font-weight: 500;
+  font-display: swap;
+  src: url('../../assets/fonts/orbitron-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Orbitron';
+  font-weight: 700;
+  font-display: swap;
+  src: url('../../assets/fonts/orbitron-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Orbitron';
+  font-weight: 900;
+  font-display: swap;
+  src: url('../../assets/fonts/orbitron-latin-900-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Share Tech Mono';
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../assets/fonts/share-tech-mono-latin-400-normal.woff2') format('woff2');
+}
+
+/* ── Tokens ─────────────────────────────────────────────────────────── */
+
+:root {
+  --primary: #05d9e8;
+  --accent: #ff2a6d;
+  --warn: #f9f002;
+  --ink: #04050e;
+  --text: #d8fbff;
+
+  --dim: color-mix(in srgb, var(--primary) 66%, transparent);
+  --line: color-mix(in srgb, var(--primary) 48%, transparent);
+  --muted: color-mix(in srgb, var(--text) 70%, transparent);
+
+  --font-display: 'Orbitron', 'Share Tech Mono', system-ui, sans-serif;
+  --font-data: 'Share Tech Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  --cut: 10px;
+  --chamfer: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+
+  color-scheme: dark;
+}
+
+/* Paletas também aqui, para a primeira pintura já sair na cor salva. */
+:root[data-theme='tactical'] {
+  --primary: #39ff14;
+  --accent: #ffb000;
+  --warn: #ff3b30;
+  --ink: #020a04;
+  --text: #e2ffd9;
+}
+:root[data-theme='armor'] {
+  --primary: #ffb800;
+  --accent: #e63946;
+  --warn: #ffffff;
+  --ink: #0b0604;
+  --text: #fff3d6;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Fica fora da tela, mas leitores de tela continuam lendo. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  background: var(--ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-data);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* ── Visor ──────────────────────────────────────────────────────────── */
+
+.stage {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  isolation: isolate;
+}
+
+.camera {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.88) contrast(1.06) brightness(0.92);
+}
+
+.camera.mirrored {
+  transform: scaleX(-1);
+}
+
+.hud-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Leve correção de cor na imagem da câmera, puxando para o tema.
+   Sem mix-blend-mode: camadas misturadas em tela cheia pesam no celular. */
+.fx-grade {
+  z-index: 1;
+  background: linear-gradient(
+    170deg,
+    color-mix(in srgb, var(--primary) 7%, transparent),
+    color-mix(in srgb, var(--accent) 5%, transparent)
+  );
+}
+
+.fx-scanlines {
+  z-index: 2;
+  background: repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.06) 0 1px, transparent 1px 3px);
+  opacity: 0.55;
+}
+
+.fx-vignette {
+  z-index: 2;
+  background: radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, rgb(0 0 0 / 0.62) 100%);
+}
+
+/* Ruído animado só com transform: a GPU move a camada, nada é repintado. */
+.fx-noise {
+  z-index: 4;
+  inset: -64px;
+  background-image: var(--noise, none);
+  background-size: 128px;
+  opacity: 0.06;
+  animation: noise 0.48s steps(1) infinite;
+  will-change: transform;
+}
+
+/* Cantoneiras da moldura do visor, no mesmo idioma das dos objetos. */
+.hud-frame {
+  --l: 26px;
+  --c: var(--line);
+  position: absolute;
+  z-index: 4;
+  inset: calc(var(--safe-top) + 8px) calc(var(--safe-right) + 8px) calc(var(--safe-bottom) + 8px)
+    calc(var(--safe-left) + 8px);
+  pointer-events: none;
+  background:
+    linear-gradient(var(--c) 0 0) 0 0 / var(--l) 1px,
+    linear-gradient(var(--c) 0 0) 0 0 / 1px var(--l),
+    linear-gradient(var(--c) 0 0) 100% 0 / var(--l) 1px,
+    linear-gradient(var(--c) 0 0) 100% 0 / 1px var(--l),
+    linear-gradient(var(--c) 0 0) 0 100% / var(--l) 1px,
+    linear-gradient(var(--c) 0 0) 0 100% / 1px var(--l),
+    linear-gradient(var(--c) 0 0) 100% 100% / var(--l) 1px,
+    linear-gradient(var(--c) 0 0) 100% 100% / 1px var(--l);
+  background-repeat: no-repeat;
+}
+
+/* Barras do HUD */
+
+.hud-top,
+.hud-bottom {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.75);
+}
+
+.hud-top {
+  top: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: calc(var(--safe-top) + 18px) calc(var(--safe-right) + 24px) 20px calc(var(--safe-left) + 24px);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0));
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--primary);
+}
+
+.brand-pupil {
+  fill: var(--accent);
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.34em;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+  color: var(--accent);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: blink 1.4s steps(1) infinite;
+}
+
+.clock {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.telemetry div {
+  display: flex;
+  gap: 6px;
+}
+
+.telemetry dt {
+  color: var(--dim);
+}
+
+.telemetry dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-bottom {
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 20px) calc(var(--safe-left) + 24px);
+  background: linear-gradient(to top, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0));
+}
+
+.readout p {
+  margin: 0;
+}
+
+.count {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.count strong {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.count span {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.readout .status {
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.status::after {
+  content: '_';
+  margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+}
+
+/* Botões com canto chanfrado: a borda é a camada de fora, o fundo a de dentro. */
+.hud-button,
+.activate {
+  position: relative;
+  border: 0;
+  background: var(--line);
+  clip-path: var(--chamfer);
+  cursor: pointer;
+}
+
+.hud-button::before,
+.activate::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  background: color-mix(in srgb, var(--ink) 84%, transparent);
+  clip-path: var(--chamfer);
+}
+
+.hud-button > *,
+.activate > * {
+  position: relative;
+}
+
+.hud-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 14px;
+  color: var(--primary);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hud-button svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.hud-button span {
+  color: var(--text);
+}
+
+.hud-button:hover::before {
+  background: color-mix(in srgb, var(--primary) 14%, var(--ink));
+}
+
+.hud-button:active::before {
+  background: color-mix(in srgb, var(--primary) 28%, var(--ink));
+}
+
+.hud-button:focus-visible,
+.activate:focus-visible {
+  outline: none;
+  background: var(--text);
+}
+
+.hud-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* O HUD entra junto com o visor: moldura, depois as barras. */
+.hud-top,
+.hud-bottom,
+.hud-frame {
+  opacity: 0;
+  transition:
+    opacity 0.45s ease,
+    transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.hud-top {
+  transform: translateY(-14px);
+}
+
+.hud-bottom {
+  transform: translateY(14px);
+}
+
+body[data-state='calibration'] :is(.hud-top, .hud-bottom, .hud-frame),
+body[data-state='scanning'] :is(.hud-top, .hud-bottom, .hud-frame) {
+  opacity: 1;
+  transform: none;
+}
+
+body[data-state='calibration'] .hud-top {
+  transition-delay: 0.25s;
+}
+
+body[data-state='calibration'] .hud-bottom {
+  transition-delay: 0.4s;
+}
+
+/* "Liga" do visor: uma linha que se abre em tela, como um monitor antigo. */
+.stage.is-powering-on {
+  animation: power-on 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.stage.is-glitching {
+  animation: glitch 0.22s linear both;
+}
+
+/* ── Telas sobre o visor ────────────────────────────────────────────── */
+
+.screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  overflow: auto;
+}
+
+body[data-state='boot'] .boot,
+body[data-state='permission'] .boot,
+body[data-state='error'] .error {
+  display: grid;
+}
+
+.screen::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 3px);
+}
+
+/* Abertura */
+
+.boot {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr auto auto;
+  justify-items: center;
+  align-items: center;
+  gap: 22px;
+  padding: calc(var(--safe-top) + 28px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 20px)
+    calc(var(--safe-left) + 24px);
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 34%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 70%),
+    var(--ink);
+}
+
+.boot-core {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.eye {
+  width: min(62vw, 36vh, 264px);
+  height: auto;
+  aspect-ratio: 1;
+  overflow: visible;
+  color: var(--primary);
+}
+
+.eye .dot {
+  fill: currentColor;
+  opacity: 0.16;
+  transition: opacity 0.25s ease;
+}
+
+.eye .dot.on {
+  opacity: 1;
+}
+
+.eye-lid {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+.eye-iris,
+.eye-pupil {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 0.8s cubic-bezier(0.2, 1.5, 0.4, 1),
+    opacity 0.4s ease;
+}
+
+.eye-iris {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.55;
+  transform: scale(0.45);
+}
+
+.eye-pupil {
+  fill: var(--accent);
+  opacity: 0.45;
+  transform: scale(0.5);
+}
+
+.boot.is-ready .eye-iris,
+.boot.is-ready .eye-pupil {
+  opacity: 1;
+  transform: none;
+}
+
+.boot.is-ready .eye-pupil {
+  animation: pupil 2.6s ease-in-out 0.9s infinite;
+}
+
+.boot.is-ready [data-dots] {
+  filter: drop-shadow(0 0 2.5px var(--primary));
+}
+
+.logo {
+  margin: 4px 0 0;
+  padding-left: 0.42em; /* compensa o espaçamento da última letra */
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(30px, 10vw, 46px);
+  letter-spacing: 0.42em;
+  line-height: 1;
+  text-shadow: 0 0 22px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+.tagline {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.boot-actions {
+  width: min(100%, 360px);
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.activate {
+  width: 100%;
+  height: 56px;
+  padding: 0 20px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.activate-fill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: max(0px, calc(var(--progress, 0%) - 2px));
+  background: color-mix(in srgb, var(--primary) 26%, transparent);
+}
+
+.activate:disabled {
+  cursor: progress;
+}
+
+.boot.is-ready .activate,
+.activate--solid {
+  background: var(--primary);
+  color: var(--ink);
+}
+
+.boot.is-ready .activate::before,
+.boot.is-ready .activate-fill,
+.activate--solid::before {
+  display: none;
+}
+
+.boot.is-ready:not(.is-busy) .activate {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.boot.is-busy .activate {
+  cursor: progress;
+  animation: none;
+  opacity: 0.85;
+}
+
+.activate--solid:focus-visible {
+  background: var(--text);
+}
+
+.privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.boot-log {
+  width: min(100%, 420px);
+  min-height: calc(5 * 1.6em);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: color-mix(in srgb, var(--text) 58%, transparent);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.boot-log li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  animation: log-in 0.3s ease both;
+}
+
+.boot-log-time {
+  margin-right: 10px;
+  color: var(--dim);
+}
+
+.boot-log-time::before {
+  content: '[';
+}
+
+.boot-log-time::after {
+  content: ']';
+}
+
+.inapp {
+  width: 100%;
+  padding: 12px 14px;
+  border-left: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.inapp p {
+  margin: 0 0 4px;
+}
+
+.text-button {
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Erro */
+
+.error {
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 24px)
+    calc(var(--safe-left) + 24px);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    var(--ink);
+}
+
+.error-panel {
+  width: min(100%, 420px);
+  padding: 4px 0 4px 20px;
+  border-left: 2px solid var(--accent);
+}
+
+.error-code {
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+
+.error-title {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: 0.03em;
+}
+
+.error-text {
+  max-width: 38ch;
+  margin: 0 0 24px;
+  color: color-mix(in srgb, var(--text) 86%, transparent);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.error-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.error-actions .activate {
+  width: auto;
+  min-width: 220px;
+}
+
+.noscript {
+  position: fixed;
+  inset: auto 24px 24px;
+  margin: 0;
+  color: var(--text);
+}
+
+/* ── Animações ──────────────────────────────────────────────────────── */
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes noise {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-37px, 21px); }
+  50% { transform: translate(53px, -45px); }
+  75% { transform: translate(-12px, 60px); }
+  100% { transform: translate(29px, -17px); }
+}
+
+@keyframes pupil {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(0.82); }
+}
+
+@keyframes breathe {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}
+
+@keyframes log-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes power-on {
+  0% { clip-path: inset(50% 0 50% 0); filter: brightness(3) saturate(0); }
+  20% { clip-path: inset(49.4% 0 49.4% 0); filter: brightness(3) saturate(0); }
+  55% { clip-path: inset(0 0 0 0); filter: brightness(1.7) saturate(0.4); }
+  100% { clip-path: inset(0 0 0 0); filter: none; }
+}
+
+@keyframes glitch {
+  0% { transform: none; }
+  20% { transform: translate(-6px, 1px); clip-path: inset(8% 0 56% 0); filter: hue-rotate(50deg) saturate(1.6); }
+  40% { transform: translate(5px, -1px); clip-path: inset(46% 0 12% 0); }
+  60% { transform: translate(-3px, 0); clip-path: inset(28% 0 34% 0); filter: hue-rotate(-40deg); }
+  80% { transform: translate(2px, 1px); clip-path: inset(0); filter: none; }
+  100% { transform: none; clip-path: inset(0); filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+  }
+}
+
+/* Telas largas: barras mais respiradas. */
+@media (min-width: 900px) {
+  .hud-top {
+    padding-inline: 40px;
+  }
+  .hud-bottom {
+    padding-inline: 40px;
+  }
+  .telemetry {
+    grid-column: auto;
+  }
+  .hud-top {
+    grid-template-columns: auto 1fr auto;
+  }
+  .telemetry {
+    justify-content: center;
+  }
+  .clock {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

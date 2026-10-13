@@ -1,0 +1,20 @@
+{
+  "name": "argos",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Visor de reconhecimento de objetos no navegador, com HUD de filme e IA rodando no próprio aparelho.",
+  "homepage": "https://francisco12-cpu.github.io/argos/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Francisco12-cpu/argos.git"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

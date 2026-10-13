@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="cyberpunk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ARGOS · visor de reconhecimento</title>
+  <meta name="description" content="Aponte a câmera e veja objetos identificados em tempo real, com um HUD de filme. A IA roda no seu aparelho: nenhuma imagem sai dele.">
+  <meta name="theme-color" content="#04050E">
+  <meta name="color-scheme" content="dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="ARGOS · visor de reconhecimento">
+  <meta property="og:description" content="Objetos identificados em tempo real pela câmera, com a IA rodando no próprio aparelho.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/orbitron-latin-900-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/orbitron-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/share-tech-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="src/styles/main.css">
+  <script>
+    // Aplica o tema salvo antes da primeira pintura (evita piscar outra cor).
+    try {
+      var savedTheme = localStorage.getItem('argos.theme');
+      if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+    } catch (error) {}
+  </script>
+  <script type="module" src="src/main.js"></script>
+</head>
+<body data-state="boot">
+  <main id="app">
+
+    <!-- Visor: câmera, HUD em canvas e moldura -->
+    <section id="stage" class="stage" aria-label="Visor da câmera">
+      <video id="camera" class="camera" playsinline muted autoplay disablepictureinpicture></video>
+      <canvas id="hud" class="hud-canvas" aria-hidden="true"></canvas>
+      <div class="fx fx-grade" aria-hidden="true"></div>
+      <div class="fx fx-scanlines" aria-hidden="true"></div>
+      <div class="fx fx-vignette" aria-hidden="true"></div>
+      <div class="fx fx-noise" aria-hidden="true"></div>
+      <div class="hud-frame" aria-hidden="true"></div>
+
+      <header class="hud-top" data-hud-top>
+        <p class="brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 12c3.2-5.2 16.8-5.2 20 0-3.2 5.2-16.8 5.2-20 0Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <circle class="brand-pupil" cx="12" cy="12" r="2.8"/>
+          </svg>
+          <span class="brand-name">ARGOS</span>
+          <span class="live">ao vivo</span>
+        </p>
+        <time class="clock" data-clock>--:--:--</time>
+        <dl class="telemetry">
+          <div><dt>FPS</dt><dd data-fps>--</dd></div>
+          <div><dt>IA</dt><dd data-infer>--</dd></div>
+          <div><dt>Ritmo</dt><dd data-rate>--</dd></div>
+          <div><dt>Motor</dt><dd data-engine>--</dd></div>
+        </dl>
+      </header>
+
+      <footer class="hud-bottom" data-hud-bottom>
+        <div class="readout">
+          <p class="count"><strong data-count>00</strong> <span data-count-label>objetos</span></p>
+          <p class="status" data-status>Calibrando</p>
+          <p class="visually-hidden" aria-live="polite" data-summary></p>
+        </div>
+        <div class="controls">
+          <button type="button" class="hud-button" data-action="switch-camera" aria-label="Trocar câmera" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.5 11a7.5 7.5 0 0 1 13-4.6L19.5 8.5"/>
+              <path d="M19.5 4v4.5H15"/>
+              <path d="M19.5 13a7.5 7.5 0 0 1-13 4.6L4.5 15.5"/>
+              <path d="M4.5 20v-4.5H9"/>
+            </svg>
+          </button>
+          <button type="button" class="hud-button hud-button--wide" data-action="theme" aria-label="Trocar tema">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M12 4.5a7.5 7.5 0 0 1 0 15Z" fill="currentColor"/>
+            </svg>
+            <span data-theme-name>Cyberpunk</span>
+          </button>
+        </div>
+      </footer>
+    </section>
+
+    <!-- Abertura: o olho de cem pontos é a barra de progresso -->
+    <section id="boot" class="screen boot" aria-labelledby="boot-title">
+      <div class="boot-core">
+        <svg class="eye" viewBox="0 0 200 200" data-ring role="progressbar" aria-label="Download da IA" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <g data-dots></g>
+          <path class="eye-lid" d="M28 100C60 54 140 54 172 100 140 146 60 146 28 100Z"/>
+          <circle class="eye-iris" cx="100" cy="100" r="27"/>
+          <circle class="eye-pupil" cx="100" cy="100" r="9"/>
+        </svg>
+        <h1 id="boot-title" class="logo">ARGOS</h1>
+        <p class="tagline">Visor de reconhecimento de objetos</p>
+      </div>
+
+      <div class="boot-actions">
+        <div class="inapp" data-inapp hidden>
+          <p>Você está no navegador interno do <strong data-inapp-name>app</strong>, que costuma bloquear a câmera. Abra no Chrome ou no Safari.</p>
+          <button type="button" class="text-button" data-inapp-copy>Copiar link</button>
+        </div>
+        <button type="button" class="activate" data-activate disabled>
+          <span class="activate-fill" aria-hidden="true"></span>
+          <span class="activate-label" data-activate-label>Carregando a IA 0%</span>
+        </button>
+        <p class="privacy">A IA roda no seu aparelho. Nenhuma imagem sai daqui.</p>
+      </div>
+
+      <ol class="boot-log" data-log aria-live="polite"></ol>
+    </section>
+
+    <!-- Erro: o que houve e como resolver -->
+    <section id="error" class="screen error" role="alertdialog" aria-labelledby="error-title" aria-describedby="error-text">
+      <div class="error-panel">
+        <p class="error-code" data-error-code>ERR</p>
+        <h2 id="error-title" class="error-title" data-error-title>Algo deu errado</h2>
+        <p id="error-text" class="error-text" data-error-text></p>
+        <div class="error-actions">
+          <button type="button" class="activate activate--solid" data-error-primary>Tentar de novo</button>
+          <button type="button" class="text-button" data-error-secondary hidden></button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+  <noscript><p class="noscript">O ARGOS precisa de JavaScript para ligar a câmera e a IA.</p></noscript>
+</body>
+</html>

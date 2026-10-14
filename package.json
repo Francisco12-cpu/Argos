@@ -1,6 +1,6 @@
 {
   "name": "argos",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Visor de reconhecimento de objetos no navegador, com HUD de filme e IA rodando no próprio aparelho.",
   "homepage": "https://francisco12-cpu.github.io/Argos/",

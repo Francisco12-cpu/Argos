@@ -28,3 +28,7 @@ O modelo não traz os rótulos embutidos. `imagenet-labels.txt` é a lista de r�
 # Modo preciso
 
 O EfficientDet-Lite2 int8 (entrada 448 × 448, cerca de 7 MB) não fica no repositório: o app o baixa do servidor oficial do MediaPipe quando a pessoa liga o modo preciso, e o navegador guarda em cache.
+
+# Modo máximo
+
+O RF-DETR Nano (Roboflow, Apache 2.0) também não fica no repositório. Quando a pessoa liga o modo máximo, o app carrega o Transformers.js 4.3.1 do jsDelivr, que baixa a versão fp16 (cerca de 54 MB) de [onnx-community/rfdetr_nano-ONNX](https://huggingface.co/onnx-community/rfdetr_nano-ONNX) e o motor ONNX do jsDelivr, e roda na GPU via WebGPU. O navegador guarda tudo em cache. Ele reconhece os mesmos 80 tipos do COCO, com precisão de 48,4 (mAP 50:95) contra 25,7 do EfficientDet-Lite0.

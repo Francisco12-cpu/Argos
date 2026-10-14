@@ -14,7 +14,7 @@ function deepFreeze(value) {
 export const CONFIG = deepFreeze({
   app: {
     name: 'ARGOS',
-    version: '0.3.0',
+    version: '0.4.0',
   },
 
   /** Motor de IA (MediaPipe Tasks Vision 1.1.0), servido pelo próprio site. */
@@ -47,6 +47,21 @@ export const CONFIG = deepFreeze({
       url: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/latest/efficientdet_lite2.tflite',
       bytes: 0,
       delegate: 'CPU',
+    },
+    /**
+     * Modo máximo: RF-DETR Nano (precisão quase o dobro do Lite0 no COCO),
+     * via Transformers.js na GPU (WebGPU com shader-f16). O modelo fp16
+     * (cerca de 54 MB) vem do Hugging Face no primeiro uso.
+     */
+    max: {
+      id: 'rf-detr-nano-fp16',
+      label: 'RF-DETR',
+      name: 'Máximo',
+      library: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.min.js',
+      hub: 'onnx-community/rfdetr_nano-ONNX',
+      dtype: 'fp16',
+      approxBytes: 54_400_000,
+      initTimeoutMs: 180_000,
     },
   },
 

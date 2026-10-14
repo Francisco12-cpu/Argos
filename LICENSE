@@ -27,4 +27,6 @@ Componentes de terceiros, cada um com a própria licença:
 - MediaPipe Tasks Vision 1.1.0 (vendor/mediapipe): Apache License 2.0
 - Modelos EfficientDet-Lite0 e MobileNetV2 (models/): Apache License 2.0
 - EfficientDet-Lite2 (modo preciso, baixado do servidor do MediaPipe): Apache License 2.0
+- Transformers.js 4.3.1 (modo máximo, carregado do jsDelivr): Apache License 2.0
+- RF-DETR Nano (modo máximo, baixado do Hugging Face): Apache License 2.0
 - Fontes Orbitron e Share Tech Mono (assets/fonts): SIL Open Font License 1.1

@@ -16,7 +16,7 @@
     <header class="bench-head">
       <a class="back" href="./">← Voltar ao visor</a>
       <h1>Teste de acertos</h1>
-      <p class="lead">Escolha fotos de objetos da sua casa e escreva o que tem em cada uma. O ARGOS analisa todas de três jeitos e mostra quantas cada jeito acertou. As fotos não saem do aparelho.</p>
+      <p class="lead">Escolha fotos de objetos da sua casa e escreva o que tem em cada uma. O ARGOS analisa todas de vários jeitos e mostra quantas cada jeito acertou. As fotos não saem do aparelho.</p>
     </header>
 
     <section class="panel">
@@ -27,6 +27,10 @@
       <label class="check">
         <input type="checkbox" data-precise>
         <span>Incluir o modo preciso (baixa cerca de 7 MB)</span>
+      </label>
+      <label class="check" data-max-option hidden>
+        <input type="checkbox" data-max>
+        <span>Incluir o modo máximo (RF-DETR, baixa cerca de 54 MB, usa a GPU)</span>
       </label>
       <button type="button" class="run" data-run disabled>Analisar</button>
       <p class="status" data-status aria-live="polite">Carregando a IA…</p>

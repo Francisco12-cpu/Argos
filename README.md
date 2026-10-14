@@ -26,7 +26,7 @@
 - Reconhece 80 tipos de objeto do dia a dia (pessoa, celular, garrafa, cadeira, notebook, carro, cachorro...), com os nomes em português.
 - Dá um **palpite** sobre o que está na mira quando não é um desses 80: um segundo modelo conhece 1.000 categorias (caneta, óculos de sol, carteira, tênis, violão...).
 - Usa um **zoom de análise**: alterna a imagem inteira com um recorte do centro em alta resolução, o que ajuda muito com objetos pequenos.
-- Tem um **modo preciso** (EfficientDet-Lite2), para quando acertar importa mais que a velocidade.
+- Tem três modos de detecção no botão do canto: **Rápido** (EfficientDet-Lite0), **Preciso** (EfficientDet-Lite2) e **Máximo** (RF-DETR Nano, quase o dobro da precisão do rápido, na GPU do aparelho com WebGPU).
 - Mostra a **dúvida**: o que a IA viu com pouca confiança aparece tracejado, e a mira pede para aproximar quando não acha nada.
 - Marca cada objeto com cantoneiras e uma etiqueta: código, nome e confiança, como `OBJ-0007` `CADEIRA` `92%`.
 - Mantém o mesmo código enquanto o objeto está em cena e tira o tremor das caixas.
@@ -87,7 +87,7 @@ O site sai em `https://SEU-USUARIO.github.io/Argos/`, e cada push na `main` roda
 npm test
 ```
 
-São 69 testes automáticos (rastreador, zoom de análise, palpites, filtro One Euro, geometria, rótulos, máquina de estados, downloads e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
+São 71 testes automáticos (rastreador, zoom de análise, palpites, filtro One Euro, geometria, rótulos, máquina de estados, downloads e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
 
 ## Desempenho
 
@@ -101,6 +101,7 @@ Medido no Chromium, num servidor de 2 núcleos; o número real do seu celular ap
 | Quadros do HUD | cerca de 60 por segundo |
 | Download no primeiro acesso | 21,8 MB sem compressão (motor 13,0 MB, detector 4,5 MB, classificador 3,6 MB) |
 | Modo preciso | mais cerca de 7 MB, baixados só quando ligado |
+| Modo máximo | mais cerca de 54 MB do Hugging Face, só no primeiro uso; precisa de WebGPU com shader-f16 (Chrome no Android e no PC, Safari no iOS 26 ou mais novo) |
 
 ## Estrutura
 
@@ -129,6 +130,7 @@ scripts/serve.mjs         servidor local sem dependências
 - [x] Fase 1: visão (câmera, IA no worker, nomes em português)
 - [x] Fase 2: HUD (abertura, mira, cantoneiras, etiquetas, temas, efeitos)
 - [x] Melhorias de reconhecimento: zoom de análise, palpites, modo preciso, dúvidas, câmera 1080p e lanterna, página de teste
+- [x] Modo máximo com RF-DETR Nano na GPU (WebGPU)
 - [ ] Fase 3: inteligência (travamento de alvo, fichas, distância, registro); o rastreador já está pronto
 - [ ] Fase 4: sentidos (sons, voz do Javis, foto e clipe)
 - [ ] Fase 5: polimento (offline, modo adaptativo, acessibilidade)
@@ -138,6 +140,7 @@ scripts/serve.mjs         servidor local sem dependências
 
 - [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (Google), Apache 2.0.
 - EfficientDet-Lite0 treinado no [COCO](https://cocodataset.org) e MobileNetV2 treinado no ImageNet, via [TensorFlow Lite Support](https://github.com/tensorflow/tflite-support), Apache 2.0.
+- [RF-DETR](https://github.com/roboflow/rf-detr) Nano (Roboflow, Apache 2.0), na conversão ONNX [onnx-community/rfdetr_nano-ONNX](https://huggingface.co/onnx-community/rfdetr_nano-ONNX), rodando com [Transformers.js](https://github.com/huggingface/transformers.js) (Apache 2.0).
 - EfficientDet-Lite2 do modo preciso, baixado do [servidor oficial do MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector), Apache 2.0.
 - Fontes [Orbitron](https://github.com/theleagueof/orbitron) e Share Tech Mono, SIL Open Font License 1.1.
 - Fotos da animação, do acervo do [scikit-image](https://scikit-image.org/docs/stable/api/skimage.data.html): astronauta Eileen Collins (NASA, domínio público), xícara de café (Rachel Michetti, CC0) e a gata Chelsea (Stefan van der Walt, CC0).

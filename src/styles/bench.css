@@ -1,5 +1,7 @@
 /* Página de teste de acertos: mesma identidade do visor, layout de leitura. */
 
+[hidden] { display: none !important; }
+
 @font-face {
   font-family: 'Orbitron';
   font-weight: 700;

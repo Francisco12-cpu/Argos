@@ -85,7 +85,7 @@ class WorkerDetector {
   }
 
   async detect(video, timestampMs, crop) {
-    const frame = { w: video.videoWidth, h: video.videoHeight };
+    const frame = sourceSize(video);
     const area = crop ?? { x: 0, y: 0, ...frame };
     const result = await this.#run('detect', video, area, { timestamp: timestampMs });
     return { inferMs: result.inferMs, detections: cropToFrame(result.detections, area, frame) };
@@ -160,7 +160,7 @@ class MainThreadDetector {
   }
 
   async detect(video, timestampMs, crop) {
-    const frame = { w: video.videoWidth, h: video.videoHeight };
+    const frame = sourceSize(video);
     const area = crop ?? { x: 0, y: 0, ...frame };
     const bitmap = await grabFrame(video, area);
     try {
@@ -200,4 +200,87 @@ async function grabFrame(video, area) {
     fallbackCanvas.getContext('2d').drawImage(video, x, y, w, h, 0, 0, w, h);
     return createImageBitmap(fallbackCanvas);
   }
+}
+
+/**
+ * Modo máximo: o RF-DETR (na GPU, num worker próprio) faz a detecção, e o
+ * detector do MediaPipe já carregado continua cuidando dos palpites.
+ * @param {Detector} base Detector do MediaPipe (para classify).
+ * @param {{library: string, model: string, dtype: string, threshold: number, initTimeoutMs: number,
+ *          onProgress?: (loaded: number, total: number) => void}} options
+ * @returns {Promise<Detector>}
+ */
+export async function createMaxDetector(base, { library, model, dtype, threshold, initTimeoutMs, onProgress }) {
+  const worker = new Worker(new URL('./rfdetr.worker.js', import.meta.url), { type: 'module', name: 'argos-rfdetr' });
+  const pending = new Map();
+  let sequence = 0;
+  let failure = null;
+
+  const fail = (error) => {
+    failure ??= error;
+    for (const entry of pending.values()) entry.reject(error);
+    pending.clear();
+  };
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('O modelo demorou demais para carregar.')), initTimeoutMs);
+    worker.addEventListener('message', ({ data }) => {
+      if (data.type === 'progress') onProgress?.(data.loaded, data.total);
+      else if (data.type === 'ready') {
+        clearTimeout(timer);
+        resolve();
+      } else if (data.type === 'init-error') {
+        clearTimeout(timer);
+        reject(new Error(data.message));
+      } else if (data.type === 'result' || data.type === 'task-error') {
+        const entry = pending.get(data.id);
+        if (!entry) return;
+        pending.delete(data.id);
+        if (data.type === 'result') entry.resolve(data);
+        else entry.reject(new Error(data.message));
+      }
+    });
+    worker.addEventListener('error', (event) => {
+      event.preventDefault?.();
+      const error = new Error(event.message || 'O worker do modo máximo parou.');
+      clearTimeout(timer);
+      reject(error);
+      fail(error);
+    });
+    worker.postMessage({ type: 'init', library, model, dtype });
+  }).catch((error) => {
+    worker.terminate();
+    throw error;
+  });
+
+  return {
+    backend: 'worker',
+    get hasClassifier() {
+      return base.hasClassifier;
+    },
+    async detect(video, timestampMs, crop) {
+      if (failure) throw failure;
+      const frame = sourceSize(video);
+      const area = crop ?? { x: 0, y: 0, ...frame };
+      const bitmap = await grabFrame(video, area);
+      const id = ++sequence;
+      const result = await new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        worker.postMessage({ type: 'detect', id, bitmap, threshold }, [bitmap]);
+      });
+      return { inferMs: result.inferMs, detections: cropToFrame(result.detections, area, frame) };
+    },
+    classify: (video, crop) => base.classify(video, crop),
+    dispose() {
+      worker.postMessage({ type: 'dispose' });
+      setTimeout(() => worker.terminate(), 500);
+      fail(new Error('Detector encerrado.'));
+      base.dispose();
+    },
+  };
+}
+
+/** Tamanho em pixels de um <video> ou de uma imagem (ImageBitmap). */
+function sourceSize(source) {
+  return { w: source.videoWidth ?? source.width, h: source.videoHeight ?? source.height };
 }

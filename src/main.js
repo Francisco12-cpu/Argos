@@ -15,7 +15,8 @@ import { State, StateMachine } from './core/state.js';
 import { labelPt } from './data/labels-pt.js';
 import { download, downloadAll, formatMegabytes } from './vision/assets.js';
 import { Camera, CameraError } from './vision/camera.js';
-import { createDetector } from './vision/detector.js';
+import { createDetector, createMaxDetector } from './vision/detector.js';
+import { supportsMaxMode } from './vision/rfdetr-format.js';
 import { predictBox, Tracker, TrackStatus } from './vision/tracker.js';
 import { centerCrop, ViewScheduler } from './vision/views.js';
 import { bestGuess } from './data/imagenet-pt.js';
@@ -154,8 +155,21 @@ async function bootSequence() {
     }
   }
 
+  if (modeKey === 'max' && !(await maxModeCheck)) setMode('fast');
   const initStarted = performance.now();
-  await buildDetector(modeKey);
+  if (modeKey === 'max') {
+    boot.log('Carregando o modo máximo (RF-DETR, cerca de 54 MB no primeiro uso)');
+    try {
+      await buildDetector('max', (loaded, total) => total && boot.setProgress(0.9 + 0.09 * (loaded / total)));
+    } catch (error) {
+      console.warn('[ARGOS] Modo máximo indisponível', error);
+      boot.log('Modo máximo indisponível agora; usando o rápido');
+      setMode('fast');
+      await buildDetector('fast');
+    }
+  } else {
+    await buildDetector(modeKey);
+  }
   const where = detector.backend === 'worker' ? 'Web Worker' : 'thread principal';
   boot.log(`IA pronta em ${seconds(performance.now() - initStarted)} (${CONFIG.models[modeKey].label}, ${where})`);
 
@@ -166,29 +180,54 @@ async function bootSequence() {
 }
 
 /** Cria (ou recria) o detector com o modelo do modo escolhido. */
-async function buildDetector(key) {
+async function buildDetector(key, onProgress) {
   const model = CONFIG.models[key];
-  const next = await createDetector({
+  const baseKey = key === 'precise' ? 'precise' : 'fast';
+  const base = await createDetector({
     loaderUrl: absolute(CONFIG.engine.loader),
     wasmUrl,
     detector: {
-      modelBytes: modelBytes.get(key),
-      delegate: model.delegate,
+      modelBytes: modelBytes.get(baseKey),
+      delegate: CONFIG.models[baseKey].delegate,
       scoreThreshold: CONFIG.detector.scoreThreshold,
       maxResults: CONFIG.detector.maxResults,
     },
     classifier: classifierBytes ? { modelBytes: classifierBytes } : null,
     initTimeoutMs: CONFIG.detector.initTimeoutMs,
   });
+  let next = base;
+  if (key === 'max') {
+    try {
+      next = await createMaxDetector(base, {
+        library: model.library,
+        model: model.hub,
+        dtype: model.dtype,
+        threshold: CONFIG.detector.scoreThreshold,
+        initTimeoutMs: model.initTimeoutMs,
+        onProgress,
+      });
+    } catch (error) {
+      base.dispose();
+      throw error;
+    }
+  }
   detector?.dispose();
   detector = next;
-  const where = detector.backend === 'worker' ? 'Web Worker' : 'thread principal';
-  engine = { short: model.label, title: `${model.label} em ${model.delegate}, ${where}` };
+  const where = key === 'max' ? 'GPU (WebGPU)' : `${model.delegate}, ${detector.backend === 'worker' ? 'Web Worker' : 'thread principal'}`;
+  engine = { short: model.label, title: `${model.label} em ${where}` };
 }
+
+/** Modos que este aparelho pode usar, na ordem do botão. */
+const modeOrder = ['fast', 'precise'];
+const maxModeCheck = supportsMaxMode().then((ok) => {
+  if (ok) modeOrder.push('max');
+  return ok;
+});
 
 function savedMode() {
   try {
-    return localStorage.getItem(MODE_KEY) === 'precise' ? 'precise' : 'fast';
+    const saved = localStorage.getItem(MODE_KEY);
+    return saved === 'precise' || saved === 'max' ? saved : 'fast';
   } catch {
     return 'fast';
   }
@@ -408,18 +447,19 @@ async function toggleTorch() {
   refreshTorchButton();
 }
 
-/** Alterna entre o modo rápido (Lite0) e o preciso (Lite2). */
+/** Passa para o próximo modo: rápido (Lite0), preciso (Lite2), máximo (RF-DETR). */
 async function toggleMode() {
   if (!machine.is(State.SCANNING) || ui.mode.disabled) return;
-  const target = modeKey === 'fast' ? 'precise' : 'fast';
+  await maxModeCheck;
+  const target = modeOrder[(modeOrder.indexOf(modeKey) + 1) % modeOrder.length];
+  const model = CONFIG.models[target];
   ui.mode.disabled = true;
   stopAi();
   try {
-    if (!modelBytes.has(target)) {
-      const model = CONFIG.models[target];
+    if (target === 'precise' && !modelBytes.has('precise')) {
       statusOverride = 'Baixando modo preciso';
       modelBytes.set(
-        target,
+        'precise',
         await download(model.url, {
           expectedBytes: model.bytes,
           onProgress: (received, total) => {
@@ -430,16 +470,21 @@ async function toggleMode() {
         }),
       );
     }
-    statusOverride = 'Trocando o modelo';
-    await buildDetector(target);
+    statusOverride = target === 'max' ? 'Carregando modo máximo' : 'Trocando o modelo';
+    await buildDetector(target, (loaded, total) => {
+      if (total) statusOverride = `Baixando modo máximo ${Math.round((loaded / total) * 100)}%`;
+    });
     setMode(target);
     tracker.reset();
     renderer.clear();
     statusOverride = null;
   } catch (error) {
     console.warn('[ARGOS] Não foi possível trocar de modo', error);
-    statusOverride = 'Modo preciso indisponível agora';
+    statusOverride = `Modo ${model.name.toLowerCase()} indisponível agora`;
     setTimeout(() => (statusOverride = null), 3_000);
+    // O detector anterior continua valendo. Um modo que falhou sai da fila
+    // nesta sessão, para o botão não ficar preso tentando de novo.
+    if (target !== 'fast') modeOrder.splice(modeOrder.indexOf(target), 1);
   } finally {
     ui.mode.disabled = false;
   }

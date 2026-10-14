@@ -12,7 +12,9 @@ import { CONFIG } from '../core/config.js';
 import { bestGuess } from '../data/imagenet-pt.js';
 import { labelPt } from '../data/labels-pt.js';
 import { download, downloadAll } from '../vision/assets.js';
+import { createMaxDetector } from '../vision/detector.js';
 import { iou } from '../vision/geometry.js';
+import { supportsMaxMode } from '../vision/rfdetr-format.js';
 import { createEngine } from '../vision/mediapipe-engine.js';
 import { centerCrop, cropToFrame } from '../vision/views.js';
 import { isMatch, normalizeName } from './matching.js';
@@ -21,6 +23,8 @@ const $ = (selector) => document.querySelector(selector);
 const ui = {
   files: $('[data-files]'),
   precise: $('[data-precise]'),
+  max: $('[data-max]'),
+  maxOption: $('[data-max-option]'),
   run: $('[data-run]'),
   status: $('[data-status]'),
   photos: $('[data-photos]'),
@@ -51,12 +55,29 @@ async function boot() {
   detectorBytes.set('fast', fastBytes);
   classifierBytes = classBytes;
   await engineFor('fast');
+  ui.maxOption.hidden = !(await supportsMaxMode());
   ui.status.textContent = 'Pronto. Escolha as fotos.';
   updateRunButton();
 }
 
 async function engineFor(key) {
   if (engines.has(key)) return engines.get(key);
+  if (key === 'max') {
+    const model = CONFIG.models.max;
+    const stub = { hasClassifier: false, classify: () => Promise.reject(new Error('sem classificador')), dispose() {} };
+    const max = await createMaxDetector(stub, {
+      library: model.library,
+        model: model.hub,
+      dtype: model.dtype,
+      threshold: CONFIG.detector.scoreThreshold,
+      initTimeoutMs: model.initTimeoutMs,
+      onProgress: (loaded, total) => {
+        if (total) ui.status.textContent = `Baixando o modo máximo ${Math.round((loaded / total) * 100)}%`;
+      },
+    });
+    engines.set(key, max);
+    return max;
+  }
   if (!detectorBytes.has(key)) {
     ui.status.textContent = 'Baixando o modo preciso…';
     detectorBytes.set(key, await download(CONFIG.models[key].url));
@@ -117,18 +138,21 @@ const MODES = [
   { id: 'full', name: 'Imagem inteira (v0.2)', model: 'fast', zoom: false },
   { id: 'zoom', name: 'Com zoom no centro', model: 'fast', zoom: true },
   { id: 'guess', name: 'Palpite do classificador', model: 'fast', guess: true },
-  { id: 'precise', name: 'Modo preciso + zoom', model: 'precise', zoom: true, optional: true },
+  { id: 'precise', name: 'Modo preciso + zoom', model: 'precise', zoom: true, optional: 'precise' },
+  { id: 'max', name: 'Modo máximo (RF-DETR) + zoom', model: 'max', zoom: true, optional: 'max' },
 ];
 
 ui.run.addEventListener('click', async () => {
   ui.run.disabled = true;
-  const modes = MODES.filter((mode) => !mode.optional || ui.precise.checked);
-  try {
-    for (const mode of modes) await engineFor(mode.model);
-  } catch (error) {
-    console.warn(error);
-    ui.status.textContent = 'O modo preciso não baixou. Seguindo sem ele.';
-    modes.splice(modes.findIndex((m) => m.id === 'precise'), 1);
+  const modes = MODES.filter((mode) => !mode.optional || ui[mode.optional].checked);
+  for (const mode of [...modes]) {
+    try {
+      await engineFor(mode.model);
+    } catch (error) {
+      console.warn(error);
+      ui.status.textContent = `O ${mode.name.toLowerCase()} não carregou. Seguindo sem ele.`;
+      modes.splice(modes.indexOf(mode), 1);
+    }
   }
 
   let timestamp = 0;
@@ -139,7 +163,9 @@ ui.run.addEventListener('click', async () => {
       const started = performance.now();
       photo.results[mode.id] = mode.guess
         ? await guessPhoto(engine, photo.bitmap)
-        : await detectPhoto(engine, photo.bitmap, mode.zoom, (timestamp += 1000));
+        : mode.model === 'max'
+          ? await detectPhotoMax(engine, photo.bitmap)
+          : await detectPhoto(engine, photo.bitmap, mode.zoom, (timestamp += 1000));
       photo.results[mode.id].ms = performance.now() - started;
     }
     renderResults(photo, modes);
@@ -164,6 +190,18 @@ async function detectPhoto(engine, bitmap, zoom, timestamp) {
       const dup = found.find((f) => f.label === d.label && iou(f.box, d.box) > 0.3);
       if (!dup) found.push(d);
     }
+  }
+  return { names: found.map((d) => `${labelPt(d.label)} ${Math.round(d.score * 100)}%`), plain: found.map((d) => labelPt(d.label)) };
+}
+
+/** Modo máximo: imagem inteira + zoom no centro, pelo worker do RF-DETR. */
+async function detectPhotoMax(detector, bitmap) {
+  const frame = { w: bitmap.width, h: bitmap.height };
+  const found = (await detector.detect(bitmap, 0)).detections.filter((d) => d.score >= MIN_SCORE);
+  const zoomed = await detector.detect(bitmap, 0, centerCrop(frame, CONFIG.views.cropFraction));
+  for (const d of zoomed.detections) {
+    if (d.score < MIN_SCORE) continue;
+    if (!found.some((f) => f.label === d.label && iou(f.box, d.box) > 0.3)) found.push(d);
   }
   return { names: found.map((d) => `${labelPt(d.label)} ${Math.round(d.score * 100)}%`), plain: found.map((d) => labelPt(d.label)) };
 }

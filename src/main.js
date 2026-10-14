@@ -13,7 +13,7 @@ import { CONFIG } from './core/config.js';
 import { EventBus } from './core/events.js';
 import { State, StateMachine } from './core/state.js';
 import { labelPt } from './data/labels-pt.js';
-import { download, downloadAll, formatMegabytes } from './vision/assets.js';
+import { downloadAll, formatMegabytes } from './vision/assets.js';
 import { Camera, CameraError } from './vision/camera.js';
 import { createDetector, createMaxDetector } from './vision/detector.js';
 import { supportsMaxMode } from './vision/rfdetr-format.js';
@@ -23,10 +23,12 @@ import { bestGuess } from './data/imagenet-pt.js';
 import { resetTextMetrics } from './hud/brackets.js';
 import { glitch, installNoise, powerOn } from './hud/effects.js';
 import { HudRenderer } from './hud/renderer.js';
-import { applyTheme, nextThemeId, savedThemeId } from './hud/themes.js';
+import { applyTheme, savedThemeId } from './hud/themes.js';
 import { BootScreen } from './ui/boot.js';
 import { copyPageLink, detectInAppBrowser } from './ui/environment.js';
 import { ErrorScreen } from './ui/error-screen.js';
+import { downloadCached, isCached, isMaxModeCached, registerServiceWorker, requestPersistence, storageUsage } from './ui/offline.js';
+import { SettingsSheet } from './ui/settings.js';
 import { Telemetry } from './ui/telemetry.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -42,12 +44,10 @@ const ui = {
   canvas: $('#hud'),
   top: $('[data-hud-top]'),
   bottom: $('[data-hud-bottom]'),
-  switchCamera: $('[data-action="switch-camera"]'),
   torch: $('[data-action="torch"]'),
   mode: $('[data-action="mode"]'),
   modeName: $('[data-mode-name]'),
-  theme: $('[data-action="theme"]'),
-  themeName: $('[data-theme-name]'),
+  settings: $('[data-action="settings"]'),
 };
 
 const bus = new EventBus();
@@ -147,7 +147,7 @@ async function bootSequence() {
   if (modeKey === 'precise') {
     try {
       boot.log('Baixando o modelo preciso (EfficientDet-Lite2)');
-      modelBytes.set('precise', await download(CONFIG.models.precise.url));
+      modelBytes.set('precise', await downloadCached(CONFIG.models.precise.url));
     } catch (error) {
       console.warn('[ARGOS] Modo preciso indisponível', error);
       boot.log('Modo preciso indisponível agora; usando o rápido');
@@ -221,8 +221,11 @@ async function buildDetector(key, onProgress) {
 const modeOrder = ['fast', 'precise'];
 const maxModeCheck = supportsMaxMode().then((ok) => {
   if (ok) modeOrder.push('max');
+  renderModes();
   return ok;
 });
+/** Modos que falharam nesta sessão (sem rede, sem GPU...). */
+const failedModes = new Set();
 
 function savedMode() {
   try {
@@ -241,6 +244,7 @@ function setMode(key) {
     // Sem armazenamento, o modo só não fica salvo.
   }
   updateModeButton();
+  renderModes();
 }
 
 function fontsReady() {
@@ -428,14 +432,29 @@ function createStats() {
 
 // ── Controles ────────────────────────────────────────────────────────
 
+const settings = new SettingsSheet($('#settings'), {
+  onMode: (key) => switchMode(key),
+  onTheme: (id) => selectTheme(id),
+  onTorch: () => toggleTorch(),
+  onSwitchCamera: () => switchCamera(),
+  onDownloadAll: () => downloadEverything(),
+});
+
+let switchingMode = false;
+let canSwitchCamera = false;
+/** O que já está guardado no aparelho, por modo. */
+const offline = { precise: false, max: false };
+let downloading = false;
+
 async function refreshSwitchButton() {
-  ui.switchCamera.hidden = !(await camera.hasMultipleCameras());
+  canSwitchCamera = await camera.hasMultipleCameras();
   refreshTorchButton();
 }
 
 function refreshTorchButton() {
   ui.torch.hidden = !camera.supportsTorch;
   ui.torch.setAttribute('aria-pressed', String(camera.torchOn));
+  settings.renderCamera({ canSwitch: canSwitchCamera, torch: camera.supportsTorch, torchOn: camera.torchOn });
 }
 
 async function toggleTorch() {
@@ -447,66 +466,167 @@ async function toggleTorch() {
   refreshTorchButton();
 }
 
-/** Passa para o próximo modo: rápido (Lite0), preciso (Lite2), máximo (RF-DETR). */
-async function toggleMode() {
-  if (!machine.is(State.SCANNING) || ui.mode.disabled) return;
+/** Troca para o modo escolhido: rápido (Lite0), preciso (Lite2) ou máximo (RF-DETR). */
+async function switchMode(target) {
+  if (target === modeKey || switchingMode || !CONFIG.models[target]) return;
+  if (!machine.is(State.SCANNING)) return;
   await maxModeCheck;
-  const target = modeOrder[(modeOrder.indexOf(modeKey) + 1) % modeOrder.length];
+  if (!modeOrder.includes(target)) return;
   const model = CONFIG.models[target];
+  switchingMode = true;
   ui.mode.disabled = true;
+  renderModes();
+  settings.close();
   stopAi();
   try {
     if (target === 'precise' && !modelBytes.has('precise')) {
       statusOverride = 'Baixando modo preciso';
-      modelBytes.set(
-        'precise',
-        await download(model.url, {
-          expectedBytes: model.bytes,
-          onProgress: (received, total) => {
-            statusOverride = total
-              ? `Baixando modo preciso ${Math.round((received / total) * 100)}%`
-              : `Baixando modo preciso ${formatMegabytes(received)}`;
-          },
-        }),
-      );
+      modelBytes.set('precise', await downloadPrecise((text) => (statusOverride = text)));
     }
     statusOverride = target === 'max' ? 'Carregando modo máximo' : 'Trocando o modelo';
     await buildDetector(target, (loaded, total) => {
       if (total) statusOverride = `Baixando modo máximo ${Math.round((loaded / total) * 100)}%`;
     });
+    if (target === 'max') offline.max = true;
     setMode(target);
     tracker.reset();
     renderer.clear();
     statusOverride = null;
+    if (!reducedMotion) glitch(ui.stage, 200);
   } catch (error) {
     console.warn('[ARGOS] Não foi possível trocar de modo', error);
     statusOverride = `Modo ${model.name.toLowerCase()} indisponível agora`;
     setTimeout(() => (statusOverride = null), 3_000);
-    // O detector anterior continua valendo. Um modo que falhou sai da fila
-    // nesta sessão, para o botão não ficar preso tentando de novo.
-    if (target !== 'fast') modeOrder.splice(modeOrder.indexOf(target), 1);
+    // O detector anterior continua valendo. Um modo que falhou sai da lista
+    // nesta sessão, para não ficar preso tentando de novo.
+    if (target !== 'fast') {
+      modeOrder.splice(modeOrder.indexOf(target), 1);
+      failedModes.add(target);
+    }
   } finally {
+    switchingMode = false;
     ui.mode.disabled = false;
+    renderModes();
   }
   startAi();
+}
+
+/** Baixa (ou lê do cache) o EfficientDet-Lite2, relatando o progresso. */
+async function downloadPrecise(report) {
+  const bytes = await downloadCached(CONFIG.models.precise.url, {
+    onProgress: (received, total) => {
+      report(
+        total && total !== received
+          ? `Baixando modo preciso ${Math.round((received / total) * 100)}%`
+          : `Baixando modo preciso ${formatMegabytes(received)}`,
+      );
+    },
+  });
+  offline.precise = true;
+  return bytes;
 }
 
 function updateModeButton() {
   const model = CONFIG.models[modeKey];
   ui.modeName.textContent = model.name;
-  ui.mode.setAttribute('aria-label', `Modo ${model.name}. Trocar modo de detecção`);
+  ui.mode.dataset.mode = modeKey;
+  ui.mode.setAttribute('aria-label', `Modo ${model.name}. Abrir ajustes de detecção`);
+}
+
+/** Texto ao lado de cada modo no painel: incluído, guardado, tamanho ou motivo. */
+function renderModes() {
+  const maxSupported = modeOrder.includes('max') || failedModes.has('max');
+  const describe = (key) => {
+    if (key === 'fast') return { available: true, ready: true, state: 'Incluído' };
+    if (failedModes.has(key)) return { available: false, ready: false, state: 'Indisponível agora' };
+    if (key === 'precise') {
+      return offline.precise || modelBytes.has('precise')
+        ? { available: true, ready: true, state: 'No aparelho' }
+        : { available: true, ready: false, state: '7 MB' };
+    }
+    if (!maxSupported) return { available: false, ready: false, state: 'Precisa de WebGPU' };
+    return offline.max
+      ? { available: true, ready: true, state: 'No aparelho' }
+      : { available: true, ready: false, state: formatMegabytes(CONFIG.models.max.approxBytes) };
+  };
+  settings.renderModes({
+    mode: modeKey,
+    busy: switchingMode,
+    modes: { fast: describe('fast'), precise: describe('precise'), max: describe('max') },
+  });
+  renderDownloadButton();
+}
+
+function renderDownloadButton(status) {
+  const maxSupported = modeOrder.includes('max');
+  const everything = offline.precise && (offline.max || !maxSupported);
+  settings.renderDownload({
+    busy: downloading || everything,
+    label: downloading ? 'Baixando...' : everything ? 'Tudo guardado no aparelho' : 'Baixar tudo para usar sem internet',
+    status: status ?? (everything ? 'Funciona sem internet, inclusive os modos extras.' : ''),
+  });
+}
+
+async function refreshOfflineState() {
+  const [precise, max] = await Promise.all([isCached(CONFIG.models.precise.url), isMaxModeCached(CONFIG.models.max)]);
+  offline.precise ||= precise;
+  offline.max ||= max;
+  renderModes();
+}
+
+/**
+ * "Baixar tudo": guarda o modelo preciso e, se o aparelho tiver WebGPU,
+ * o modo máximo inteiro, para o visor funcionar sem internet.
+ */
+async function downloadEverything() {
+  if (downloading) return;
+  downloading = true;
+  renderDownloadButton('Preparando...');
+  requestPersistence();
+  try {
+    if (!offline.precise || !modelBytes.has('precise')) {
+      modelBytes.set('precise', await downloadPrecise((text) => renderDownloadButton(text)));
+    }
+    renderModes();
+    await maxModeCheck;
+    if (modeOrder.includes('max') && !offline.max) {
+      renderDownloadButton('Baixando modo máximo');
+      // Carrega o RF-DETR num worker à parte só para guardar os arquivos; depois descarta.
+      const holder = { hasClassifier: false, classify: async () => ({ top: [] }), dispose() {} };
+      const model = CONFIG.models.max;
+      const temporary = await createMaxDetector(holder, {
+        library: model.library,
+        model: model.hub,
+        dtype: model.dtype,
+        threshold: CONFIG.detector.scoreThreshold,
+        initTimeoutMs: model.initTimeoutMs,
+        onProgress: (loaded, total) => {
+          if (total) renderDownloadButton(`Baixando modo máximo ${Math.round((loaded / total) * 100)}%`);
+        },
+      });
+      temporary.dispose();
+      offline.max = true;
+    }
+    downloading = false;
+    const usage = await storageUsage();
+    renderModes();
+    renderDownloadButton(`Pronto. Tudo guardado no aparelho${usage ? ` (${formatMegabytes(usage)})` : ''}.`);
+  } catch (error) {
+    console.warn('[ARGOS] Falha ao baixar tudo', error);
+    downloading = false;
+    renderModes();
+    renderDownloadButton('Não deu para baixar agora. Confira a internet e tente de novo.');
+  }
 }
 
 async function switchCamera() {
   if (!machine.is(State.SCANNING)) return;
-  ui.switchCamera.disabled = true;
+  settings.close();
   stopAi();
   try {
     await camera.switchFacing();
   } catch (error) {
     console.warn('[ARGOS] Não foi possível trocar de câmera', error);
-  } finally {
-    ui.switchCamera.disabled = false;
   }
   if (!camera.active) {
     failCamera(new CameraError('unknown'));
@@ -519,16 +639,12 @@ async function switchCamera() {
   startAi();
 }
 
-function cycleTheme() {
-  theme = applyTheme(nextThemeId(theme.id));
+function selectTheme(id) {
+  if (id === theme.id) return;
+  theme = applyTheme(id);
   renderer.setPalette(theme);
-  updateThemeButton();
+  settings.renderTheme(theme.id);
   if (!reducedMotion) glitch(ui.stage, 160);
-}
-
-function updateThemeButton() {
-  ui.themeName.textContent = theme.name;
-  ui.theme.setAttribute('aria-label', `Tema ${theme.name}. Trocar tema`);
 }
 
 function updateInsets() {
@@ -602,12 +718,14 @@ async function retryCamera() {
 // ── Eventos da página ────────────────────────────────────────────────
 
 boot.onActivate(activate);
-ui.switchCamera.addEventListener('click', switchCamera);
-ui.theme.addEventListener('click', cycleTheme);
-ui.mode.addEventListener('click', toggleMode);
+ui.mode.addEventListener('click', () => settings.open(ui.mode));
+ui.settings.addEventListener('click', () => settings.open(ui.settings));
 ui.torch.addEventListener('click', toggleTorch);
-updateThemeButton();
+settings.setVersion(`v${CONFIG.app.version}`);
+settings.renderTheme(theme.id);
 updateModeButton();
+refreshOfflineState();
+registerServiceWorker();
 
 camera.onEnded = () => {
   if (machine.is(State.SCANNING) || machine.is(State.CALIBRATION)) {
@@ -650,7 +768,7 @@ window.addEventListener('pagehide', () => {
 document.fonts?.addEventListener?.('loadingdone', resetTextMetrics);
 
 if (new URLSearchParams(location.search).has('debug')) {
-  window.ARGOS = { machine, tracker, camera, stats, renderer, bus, get detector() { return detector; }, get guess() { return guess; }, set guess(value) { guess = value; }, get mode() { return modeKey; } };
+  window.ARGOS = { machine, tracker, camera, stats, renderer, bus, get detector() { return detector; }, get guess() { return guess; }, set guess(value) { guess = value; }, get mode() { return modeKey; }, settings, switchMode };
 }
 
 installNoise();

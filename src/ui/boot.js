@@ -4,7 +4,9 @@
  */
 
 const DOTS = 100;
-const RADIUS = 90;
+const RADIUS = 108;
+const CENTER = 120;
+const FIBERS = 60;
 const MAX_LOG_LINES = 5;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -35,14 +37,32 @@ export class BootScreen {
     for (let i = 0; i < DOTS; i += 1) {
       const angle = (i / DOTS) * Math.PI * 2 - Math.PI / 2;
       const dot = document.createElementNS(SVG_NS, 'circle');
-      dot.setAttribute('cx', (100 + Math.cos(angle) * RADIUS).toFixed(2));
-      dot.setAttribute('cy', (100 + Math.sin(angle) * RADIUS).toFixed(2));
+      dot.setAttribute('cx', (CENTER + Math.cos(angle) * RADIUS).toFixed(2));
+      dot.setAttribute('cy', (CENTER + Math.sin(angle) * RADIUS).toFixed(2));
       dot.setAttribute('r', i % 25 === 0 ? '2.6' : '1.6');
       dot.setAttribute('class', 'dot');
       fragment.append(dot);
       this.#dots.push(dot);
     }
     group.append(fragment);
+
+    // Fibras da íris: linhas radiais de comprimentos variados, como numa íris de verdade.
+    const fibers = this.#ring.querySelector('[data-fibers]');
+    if (!fibers) return;
+    const lines = document.createDocumentFragment();
+    for (let i = 0; i < FIBERS; i += 1) {
+      const angle = (i / FIBERS) * Math.PI * 2;
+      const inner = 13 + ((i * 7) % 5);
+      const outer = 30 + ((i * 11) % 8);
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('x1', (CENTER + Math.cos(angle) * inner).toFixed(2));
+      line.setAttribute('y1', (CENTER + Math.sin(angle) * inner).toFixed(2));
+      line.setAttribute('x2', (CENTER + Math.cos(angle) * outer).toFixed(2));
+      line.setAttribute('y2', (CENTER + Math.sin(angle) * outer).toFixed(2));
+      line.setAttribute('class', i % 3 === 0 ? 'fiber fiber--bright' : 'fiber');
+      lines.append(line);
+    }
+    fibers.append(lines);
   }
 
   reset() {

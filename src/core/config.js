@@ -14,7 +14,7 @@ function deepFreeze(value) {
 export const CONFIG = deepFreeze({
   app: {
     name: 'ARGOS',
-    version: '0.4.0',
+    version: '0.5.0',
   },
 
   /** Motor de IA (MediaPipe Tasks Vision 1.1.0), servido pelo próprio site. */

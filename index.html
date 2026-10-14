@@ -44,8 +44,10 @@
       <header class="hud-top" data-hud-top>
         <p class="brand">
           <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M2 12c3.2-5.2 16.8-5.2 20 0-3.2 5.2-16.8 5.2-20 0Z" fill="none" stroke="currentColor" stroke-width="1.5"/>
-            <circle class="brand-pupil" cx="12" cy="12" r="2.8"/>
+            <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="0.8" stroke-dasharray="1 2.2" opacity="0.7"/>
+            <path d="M2.5 12c3-4.6 16-4.6 19 0-3 4.6-16 4.6-19 0Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+            <circle cx="12" cy="12" r="3.9" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <circle class="brand-pupil" cx="12" cy="12" r="1.9"/>
           </svg>
           <span class="brand-name">ARGOS</span>
           <span class="live">ao vivo</span>
@@ -73,7 +75,7 @@
               <path d="M12 12v3" stroke-linecap="round"/>
             </svg>
           </button>
-          <button type="button" class="hud-button hud-button--wide" data-action="mode" aria-label="Trocar modo de detecção">
+          <button type="button" class="hud-button hud-button--wide" data-action="mode" aria-label="Modo de detecção">
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6">
               <circle cx="12" cy="12" r="7.5"/>
               <circle cx="12" cy="12" r="3"/>
@@ -81,33 +83,124 @@
             </svg>
             <span data-mode-name>Rápido</span>
           </button>
-          <button type="button" class="hud-button" data-action="switch-camera" aria-label="Trocar câmera" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4.5 11a7.5 7.5 0 0 1 13-4.6L19.5 8.5"/>
-              <path d="M19.5 4v4.5H15"/>
-              <path d="M19.5 13a7.5 7.5 0 0 1-13 4.6L4.5 15.5"/>
-              <path d="M4.5 20v-4.5H9"/>
+          <button type="button" class="hud-button" data-action="settings" aria-label="Ajustes" aria-haspopup="dialog">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <path d="M4 7h10M18 7h2M4 17h2M10 17h10"/>
+              <circle cx="16" cy="7" r="2"/>
+              <circle cx="8" cy="17" r="2"/>
             </svg>
-          </button>
-          <button type="button" class="hud-button hud-button--wide" data-action="theme" aria-label="Trocar tema">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
-              <path d="M12 4.5a7.5 7.5 0 0 1 0 15Z" fill="currentColor"/>
-            </svg>
-            <span data-theme-name>Cyberpunk</span>
           </button>
         </div>
       </footer>
+
+      <!-- Ajustes: modo, download, tema, câmera, créditos -->
+      <div class="sheet" id="settings" hidden>
+        <div class="sheet-backdrop" data-sheet-close></div>
+        <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <header class="sheet-head">
+            <h2 id="settings-title">Ajustes</h2>
+            <button type="button" class="sheet-close" data-sheet-close aria-label="Fechar ajustes">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </header>
+
+          <div class="sheet-body">
+            <section class="sheet-section" aria-labelledby="mode-title">
+              <h3 id="mode-title">Modo de detecção</h3>
+              <div class="mode-list" role="radiogroup" aria-labelledby="mode-title">
+                <button type="button" class="mode-option" role="radio" data-mode-option="fast">
+                  <span class="mode-name">Rápido</span>
+                  <span class="mode-desc">EfficientDet-Lite0. Leve e já vem no app.</span>
+                  <span class="mode-state" data-mode-state="fast">Incluído</span>
+                </button>
+                <button type="button" class="mode-option" role="radio" data-mode-option="precise">
+                  <span class="mode-name">Preciso</span>
+                  <span class="mode-desc">EfficientDet-Lite2. Acerta mais, um pouco mais lento.</span>
+                  <span class="mode-state" data-mode-state="precise">7 MB</span>
+                </button>
+                <button type="button" class="mode-option" role="radio" data-mode-option="max">
+                  <span class="mode-name">Máximo</span>
+                  <span class="mode-desc">RF-DETR na GPU. Quase o dobro de precisão do rápido.</span>
+                  <span class="mode-state" data-mode-state="max">54 MB</span>
+                </button>
+              </div>
+              <button type="button" class="sheet-action" data-download-all>Baixar tudo para usar sem internet</button>
+              <p class="sheet-note" data-download-status aria-live="polite"></p>
+            </section>
+
+            <section class="sheet-section" aria-labelledby="theme-title">
+              <h3 id="theme-title">Tema</h3>
+              <div class="theme-list">
+                <button type="button" class="theme-option" data-theme-option="cyberpunk" aria-pressed="false"><span class="swatch swatch--cyberpunk" aria-hidden="true"></span>Cyberpunk</button>
+                <button type="button" class="theme-option" data-theme-option="tactical" aria-pressed="false"><span class="swatch swatch--tactical" aria-hidden="true"></span>Tático</button>
+                <button type="button" class="theme-option" data-theme-option="armor" aria-pressed="false"><span class="swatch swatch--armor" aria-hidden="true"></span>Armadura</button>
+              </div>
+            </section>
+
+            <section class="sheet-section" aria-labelledby="camera-title" data-camera-section>
+              <h3 id="camera-title">Câmera</h3>
+              <div class="toggle-list">
+                <button type="button" class="sheet-action sheet-action--quiet" data-action="switch-camera" hidden>Trocar câmera</button>
+                <button type="button" class="sheet-action sheet-action--quiet" data-sheet-torch aria-pressed="false" hidden>Lanterna</button>
+              </div>
+              <p class="sheet-note" data-camera-note>Esta câmera não tem opções extras.</p>
+            </section>
+
+            <footer class="sheet-credit">
+              <p><strong>ARGOS</strong> <span data-version></span></p>
+              <p>Criado por Francisco Audir · <a href="https://www.instagram.com/filho.af/" target="_blank" rel="noopener">@filho.af</a></p>
+              <p><a href="bench.html">Teste de acertos</a> · <a href="https://github.com/Francisco12-cpu/Argos" target="_blank" rel="noopener">Código no GitHub</a></p>
+            </footer>
+          </div>
+        </section>
+      </div>
     </section>
 
     <!-- Abertura: o olho de cem pontos é a barra de progresso -->
     <section id="boot" class="screen boot" aria-labelledby="boot-title">
       <div class="boot-core">
-        <svg class="eye" viewBox="0 0 200 200" data-ring role="progressbar" aria-label="Download da IA" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <svg class="eye" viewBox="0 0 240 240" data-ring role="progressbar" aria-label="Download da IA" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <defs>
+            <radialGradient id="eye-iris-fill" cx="50%" cy="50%" r="50%">
+              <stop offset="0" style="stop-color: var(--accent); stop-opacity: 0.55"/>
+              <stop offset="0.45" style="stop-color: var(--primary); stop-opacity: 0.28"/>
+              <stop offset="1" style="stop-color: var(--primary); stop-opacity: 0.04"/>
+            </radialGradient>
+            <linearGradient id="eye-lid-stroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" style="stop-color: var(--primary); stop-opacity: 0.2"/>
+              <stop offset="0.5" style="stop-color: var(--primary); stop-opacity: 1"/>
+              <stop offset="1" style="stop-color: var(--primary); stop-opacity: 0.2"/>
+            </linearGradient>
+            <clipPath id="eye-lid-clip">
+              <path d="M40 120C76 70 164 70 200 120 164 170 76 170 40 120Z"/>
+            </clipPath>
+          </defs>
+          <g class="eye-frame" fill="none">
+            <path d="M14 34V14h20M206 14h20v20M226 206v20h-20M34 226H14v-20"/>
+          </g>
           <g data-dots></g>
-          <path class="eye-lid" d="M28 100C60 54 140 54 172 100 140 146 60 146 28 100Z"/>
-          <circle class="eye-iris" cx="100" cy="100" r="27"/>
-          <circle class="eye-pupil" cx="100" cy="100" r="9"/>
+          <circle class="eye-orbit" cx="120" cy="120" r="94"/>
+          <g class="eye-arcs" fill="none">
+            <path d="M120 38a82 82 0 0 1 71 41"/>
+            <path d="M120 202a82 82 0 0 1-71-41"/>
+          </g>
+          <g class="eye-ball">
+            <g clip-path="url(#eye-lid-clip)">
+              <rect class="eye-sclera" x="40" y="70" width="160" height="100"/>
+              <g class="eye-iris">
+                <circle cx="120" cy="120" r="38" fill="url(#eye-iris-fill)"/>
+                <g data-fibers></g>
+                <circle class="eye-iris-ring" cx="120" cy="120" r="38"/>
+                <circle class="eye-iris-ring eye-iris-ring--inner" cx="120" cy="120" r="24"/>
+              </g>
+              <circle class="eye-pupil" cx="120" cy="120" r="12"/>
+              <circle class="eye-core" cx="120" cy="120" r="3.5"/>
+              <circle class="eye-glint" cx="130" cy="109" r="3.5"/>
+              <rect class="eye-scan" x="40" y="118" width="160" height="2"/>
+            </g>
+            <path class="eye-lid" d="M40 120C76 70 164 70 200 120 164 170 76 170 40 120Z"/>
+            <path class="eye-lid eye-lid--echo" d="M30 120C70 58 170 58 210 120"/>
+          </g>
         </svg>
         <h1 id="boot-title" class="logo">ARGOS</h1>
         <p class="tagline">Visor de reconhecimento de objetos</p>
@@ -127,6 +220,8 @@
       </div>
 
       <ol class="boot-log" data-log aria-live="polite"></ol>
+
+      <p class="credit">Criado por Francisco Audir · <a href="https://www.instagram.com/filho.af/" target="_blank" rel="noopener">@filho.af</a></p>
     </section>
 
     <!-- Erro: o que houve e como resolver -->

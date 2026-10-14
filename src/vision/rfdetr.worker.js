@@ -50,6 +50,8 @@ self.addEventListener('message', async ({ data: message }) => {
       try {
         const transformers = await import(message.library);
         transformers.env.allowLocalModels = false;
+        // Guarda os pesos no cache do navegador: o modo máximo funciona sem internet depois.
+        transformers.env.useBrowserCache = true;
         RawImage = transformers.RawImage;
         detector = await transformers.pipeline('object-detection', message.model, {
           device: 'webgpu',

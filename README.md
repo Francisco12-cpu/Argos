@@ -26,13 +26,14 @@
 - Reconhece 80 tipos de objeto do dia a dia (pessoa, celular, garrafa, cadeira, notebook, carro, cachorro...), com os nomes em português.
 - Dá um **palpite** sobre o que está na mira quando não é um desses 80: um segundo modelo conhece 1.000 categorias (caneta, óculos de sol, carteira, tênis, violão...).
 - Usa um **zoom de análise**: alterna a imagem inteira com um recorte do centro em alta resolução, o que ajuda muito com objetos pequenos.
-- Tem três modos de detecção no botão do canto: **Rápido** (EfficientDet-Lite0), **Preciso** (EfficientDet-Lite2) e **Máximo** (RF-DETR Nano, quase o dobro da precisão do rápido, na GPU do aparelho com WebGPU).
+- Tem três modos de detecção, escolhidos no painel de ajustes (botão de baixo, feito para o polegar): **Rápido** (EfficientDet-Lite0), **Preciso** (EfficientDet-Lite2) e **Máximo** (RF-DETR Nano, quase o dobro da precisão do rápido, na GPU do aparelho com WebGPU).
 - Mostra a **dúvida**: o que a IA viu com pouca confiança aparece tracejado, e a mira pede para aproximar quando não acha nada.
 - Marca cada objeto com cantoneiras e uma etiqueta: código, nome e confiança, como `OBJ-0007` `CADEIRA` `92%`.
 - Mantém o mesmo código enquanto o objeto está em cena e tira o tremor das caixas.
 - Desenha o HUD a 60 quadros por segundo, independente do ritmo da IA.
 - Tem três temas (Cyberpunk, Tático e Armadura) e lanterna, nos celulares que permitem.
-- Abre no navegador do celular ou do computador, sem instalar nada.
+- **Funciona sem internet**: depois da primeira visita, o visor abre offline. O botão **Baixar tudo** guarda também os modos preciso e máximo no aparelho.
+- Abre no navegador do celular ou do computador, sem instalar nada, e pode ser instalado na tela inicial como app.
 
 ## Como funciona
 
@@ -59,7 +60,7 @@ A [página de teste](https://francisco12-cpu.github.io/Argos/bench.html) analisa
 
 ## Privacidade
 
-A câmera é processada inteira no aparelho. Não existe servidor, conta, cookie de rastreamento nem envio de imagens: o site só baixa o motor da IA e o modelo, uma vez, e depois o navegador guarda os dois em cache.
+A câmera é processada inteira no aparelho. Não existe servidor, conta, cookie de rastreamento nem envio de imagens: o site só baixa o motor da IA e os modelos, uma vez, e depois o navegador guarda tudo no aparelho.
 
 ## Rodar no seu computador
 
@@ -87,7 +88,7 @@ O site sai em `https://SEU-USUARIO.github.io/Argos/`, e cada push na `main` roda
 npm test
 ```
 
-São 71 testes automáticos (rastreador, zoom de análise, palpites, filtro One Euro, geometria, rótulos, máquina de estados, downloads e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
+São 76 testes automáticos (rastreador, zoom de análise, palpites, filtro One Euro, geometria, rótulos, máquina de estados, downloads, uso offline e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
 
 ## Desempenho
 
@@ -107,12 +108,13 @@ Medido no Chromium, num servidor de 2 núcleos; o número real do seu celular ap
 
 ```text
 index.html                página única
+sw.js                     service worker: uso sem internet
 src/
   main.js                 liga os módulos e conduz os estados
   core/                   configuração, eventos, máquina de estados
   vision/                 câmera, download, detector (worker), rastreador, geometria
   hud/                    canvas: cantoneiras, etiquetas, mira, temas, efeitos
-  ui/                     abertura, telemetria, tela de erro
+  ui/                     abertura, painel de ajustes, offline, telemetria, tela de erro
   bench/                  página de teste de acertos
   data/                   nomes em português, palpites e grupos de nomes parecidos
   styles/main.css
@@ -133,10 +135,13 @@ scripts/serve.mjs         servidor local sem dependências
 - [x] Modo máximo com RF-DETR Nano na GPU (WebGPU)
 - [ ] Fase 3: inteligência (travamento de alvo, fichas, distância, registro); o rastreador já está pronto
 - [ ] Fase 4: sentidos (sons, voz do Javis, foto e clipe)
-- [ ] Fase 5: polimento (offline, modo adaptativo, acessibilidade)
+- [x] Interface nova para celular: olho e ícone redesenhados, painel de ajustes, uso sem internet
+- [ ] Fase 5: polimento (modo adaptativo, acessibilidade)
 - [ ] Fase 6: lançamento
 
 ## Créditos
+
+Criado por **Francisco Audir** ([@filho.af](https://www.instagram.com/filho.af/)).
 
 - [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (Google), Apache 2.0.
 - EfficientDet-Lite0 treinado no [COCO](https://cocodataset.org) e MobileNetV2 treinado no ImageNet, via [TensorFlow Lite Support](https://github.com/tensorflow/tflite-support), Apache 2.0.

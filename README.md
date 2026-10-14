@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://francisco12-cpu.github.io/argos/"><strong>Abrir a demo</strong></a>
+  <a href="https://francisco12-cpu.github.io/Argos/"><strong>Abrir a demo</strong></a>
 </p>
 
 <p align="center">
@@ -55,8 +55,8 @@ A câmera é processada inteira no aparelho. Não existe servidor, conta, cookie
 ## Rodar no seu computador
 
 ```sh
-git clone https://github.com/Francisco12-cpu/argos.git
-cd argos
+git clone https://github.com/Francisco12-cpu/Argos.git
+cd Argos
 npm start
 ```
 
@@ -70,7 +70,7 @@ A câmera só funciona em `https` ou em `localhost`. Para testar no celular, use
 2. No fork, abra **Settings → Pages** e, em **Build and deployment**, escolha **Source: GitHub Actions**.
 3. Na aba **Actions**, ative os workflows e rode **Testes e publicação**.
 
-O site sai em `https://SEU-USUARIO.github.io/argos/`, e cada push na `main` roda os testes e publica de novo.
+O site sai em `https://SEU-USUARIO.github.io/Argos/`, e cada push na `main` roda os testes e publica de novo.
 
 ## Testes
 

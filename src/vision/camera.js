@@ -53,6 +53,8 @@ export class Camera {
   #stream = null;
   #facing = 'environment';
   #mirrored = false;
+  #track = null;
+  #torchOn = false;
 
   /** Chamado quando a câmera é desligada por fora (outro app, cabo solto). */
   onEnded = null;
@@ -99,8 +101,9 @@ export class Camera {
         audio: false,
         video: {
           facingMode: { ideal: facing },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          // 1080p dá detalhe para o zoom de análise no centro da mira.
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30, max: 30 },
         },
       });
@@ -121,6 +124,9 @@ export class Camera {
     });
 
     this.#mirrored = this.#detectMirrored(track);
+    this.#track = track ?? null;
+    this.#torchOn = false;
+    await this.#preferContinuousFocus();
 
     const video = this.#video;
     video.muted = true;
@@ -137,6 +143,40 @@ export class Camera {
   }
 
   /** Alterna frontal ↔ traseira. Se não der, volta para a câmera anterior. */
+  /** O aparelho deixa ligar a lanterna por esta câmera? (Chrome no Android, em geral.) */
+  get supportsTorch() {
+    return Boolean(this.#capabilities().torch);
+  }
+
+  get torchOn() {
+    return this.#torchOn;
+  }
+
+  async setTorch(on) {
+    if (!this.#track || !this.supportsTorch) return;
+    await this.#track.applyConstraints({ advanced: [{ torch: on }] });
+    this.#torchOn = on;
+  }
+
+  #capabilities() {
+    try {
+      return this.#track?.getCapabilities?.() ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Foco contínuo, quando a câmera oferece: objetos perto ficam nítidos. */
+  async #preferContinuousFocus() {
+    const modes = this.#capabilities().focusMode;
+    if (!Array.isArray(modes) || !modes.includes('continuous')) return;
+    try {
+      await this.#track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch {
+      // Sem foco contínuo, a câmera segue no modo padrão dela.
+    }
+  }
+
   async switchFacing() {
     const previous = this.#facing;
     const next = previous === 'environment' ? 'user' : 'environment';
@@ -160,6 +200,8 @@ export class Camera {
   stop() {
     this.#stream?.getTracks().forEach((track) => track.stop());
     this.#stream = null;
+    this.#track = null;
+    this.#torchOn = false;
     this.#video.srcObject = null;
   }
 }

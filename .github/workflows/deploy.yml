@@ -42,7 +42,7 @@ jobs:
       - name: Montar o site
         run: |
           mkdir -p _site
-          cp -r index.html manifest.webmanifest src vendor models assets _site/
+          cp -r index.html bench.html manifest.webmanifest src vendor models assets _site/
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v5
         with:

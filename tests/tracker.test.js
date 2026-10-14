@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { formatCode, predictBox, Tracker, TrackStatus } from '../src/vision/tracker.js';
+import { formatCode, isCovered, predictBox, Tracker, TrackStatus } from '../src/vision/tracker.js';
 
 const STEP_MS = 100; // 10 análises por segundo
 
@@ -186,5 +186,52 @@ describe('formatCode', () => {
   it('usa quatro dígitos', () => {
     assert.equal(formatCode(7), 'OBJ-0007');
     assert.equal(formatCode(1234), 'OBJ-1234');
+  });
+});
+
+describe('Tracker: análises parciais (zoom no centro)', () => {
+  const center = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+
+  it('objeto fora do recorte não conta como "não visto"', () => {
+    const tracker = new Tracker();
+    const chair = det('chair', 0.8, 0.02, 0.02, 0.15, 0.2);
+    run(tracker, [[chair], [chair], [chair]]);
+    for (let i = 0; i < 12; i += 1) tracker.update([], 300 + i * 100, center);
+    assert.equal(tracker.tracks[0].status, TrackStatus.CONFIRMED);
+    assert.equal(tracker.tracks[0].misses, 0);
+  });
+
+  it('objeto dentro do recorte e ausente conta como "não visto"', () => {
+    const tracker = new Tracker();
+    const cup = det('cup', 0.8, 0.45, 0.45, 0.08, 0.08);
+    run(tracker, [[cup], [cup], [cup]]);
+    tracker.update([], 300, center);
+    assert.equal(tracker.tracks[0].misses, 1);
+  });
+
+  it('alternando imagem inteira e centro, objetos fora do centro ainda são confirmados', () => {
+    const tracker = new Tracker();
+    const bike = det('bicycle', 0.8, 0.02, 0.6, 0.2, 0.3);
+    for (let i = 0; i < 6; i += 1) {
+      const region = i % 2 ? center : undefined;
+      tracker.update(i % 2 ? [] : [bike], i * 100, region);
+    }
+    assert.equal(tracker.tracks[0].status, TrackStatus.CONFIRMED);
+  });
+
+  it('isCovered recusa objetos maiores que o recorte', () => {
+    assert.equal(isCovered({ x: 0.2, y: 0.2, w: 0.6, h: 0.6 }, center), false);
+    assert.equal(isCovered({ x: 0.4, y: 0.4, w: 0.1, h: 0.1 }, center), true);
+  });
+});
+
+describe('Tracker: dúvidas', () => {
+  it('guarda detecções fracas por um instante, sem criar objetos', () => {
+    const tracker = new Tracker({ minScoreNew: 0.45, minScoreKeep: 0.3, weakMs: 700 });
+    tracker.update([det('book', 0.38, 0.6, 0.6, 0.1, 0.1)], 0);
+    assert.equal(tracker.tracks.length, 0);
+    assert.equal(tracker.weak.length, 1);
+    tracker.update([], 800);
+    assert.equal(tracker.weak.length, 0);
   });
 });

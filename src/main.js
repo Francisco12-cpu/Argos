@@ -13,10 +13,12 @@ import { CONFIG } from './core/config.js';
 import { EventBus } from './core/events.js';
 import { State, StateMachine } from './core/state.js';
 import { labelPt } from './data/labels-pt.js';
-import { downloadAll, formatMegabytes } from './vision/assets.js';
+import { download, downloadAll, formatMegabytes } from './vision/assets.js';
 import { Camera, CameraError } from './vision/camera.js';
 import { createDetector } from './vision/detector.js';
-import { Tracker, TrackStatus } from './vision/tracker.js';
+import { predictBox, Tracker, TrackStatus } from './vision/tracker.js';
+import { centerCrop, ViewScheduler } from './vision/views.js';
+import { bestGuess } from './data/imagenet-pt.js';
 import { resetTextMetrics } from './hud/brackets.js';
 import { glitch, installNoise, powerOn } from './hud/effects.js';
 import { HudRenderer } from './hud/renderer.js';
@@ -40,6 +42,9 @@ const ui = {
   top: $('[data-hud-top]'),
   bottom: $('[data-hud-bottom]'),
   switchCamera: $('[data-action="switch-camera"]'),
+  torch: $('[data-action="torch"]'),
+  mode: $('[data-action="mode"]'),
+  modeName: $('[data-mode-name]'),
   theme: $('[data-action="theme"]'),
   themeName: $('[data-theme-name]'),
 };
@@ -51,12 +56,21 @@ const tracker = new Tracker(CONFIG.tracker);
 const boot = new BootScreen($('#boot'));
 const errorScreen = new ErrorScreen($('#error'));
 const stats = createStats();
+const views = new ViewScheduler(CONFIG.views);
+const MODE_KEY = 'argos.mode';
 
 let theme = applyTheme(savedThemeId(CONFIG.ui.defaultTheme));
 let detector = null;
 let wasmUrl = null;
+let modeKey = savedMode();
+const modelBytes = new Map();
+let classifierBytes = null;
+/** Palpite do classificador para o que está na mira. */
+let guess = null;
+let lastObjectAt = performance.now();
 let aiGeneration = 0;
 let status = 'Calibrando';
+let statusOverride = null;
 let engine = { short: '--', title: '' };
 
 const renderer = new HudRenderer(ui.canvas, {
@@ -64,10 +78,14 @@ const renderer = new HudRenderer(ui.canvas, {
     frame: () => camera.frame,
     mirrored: () => camera.mirrored,
     tracks: () => tracker.tracks,
+    weak: () => tracker.weak,
+    guess: () => guess,
+    hint: hintActive,
   },
   palette: theme,
   fadeMs: CONFIG.tracker.fadeMs,
   maxPredictMs: CONFIG.tracker.maxPredictMs,
+  weakMs: CONFIG.tracker.weakMs,
   reducedMotion,
 });
 
@@ -80,8 +98,19 @@ const telemetry = new Telemetry(document, () => ({
   labels: tracker.tracks
     .filter((track) => track.status === TrackStatus.CONFIRMED)
     .map((track) => labelPt(track.label)),
-  status,
+  status: currentStatus(),
 }));
+
+/** Muito tempo sem objetos e sem palpite: a mira sugere aproximar. */
+function hintActive() {
+  return machine.is(State.SCANNING) && !guess && performance.now() - lastObjectAt > CONFIG.ui.hintAfterMs;
+}
+
+function currentStatus() {
+  if (statusOverride) return statusOverride;
+  if (hintActive()) return 'Nada à vista: aproxime';
+  return status;
+}
 
 bus.on('state', ({ to }) => {
   document.body.dataset.state = to;
@@ -93,42 +122,86 @@ async function bootSequence() {
   boot.reset();
   if (inAppBrowser) boot.showInAppWarning(inAppBrowser, () => copyPageLink());
 
-  const model = CONFIG.models[0];
   const { wasm } = CONFIG.engine;
-  boot.log(`Baixando a IA: modelo ${formatMegabytes(model.bytes)}, motor ${formatMegabytes(wasm.bytes)}`);
+  const fast = CONFIG.models.fast;
+  const { classifier } = CONFIG;
+  boot.log(`Baixando a IA: detector ${formatMegabytes(fast.bytes)}, classificador ${formatMegabytes(classifier.bytes)}, motor ${formatMegabytes(wasm.bytes)}`);
 
   const downloadStarted = performance.now();
-  const [wasmBytes, modelBytes] = await downloadAll(
+  const [wasmBytes, fastBytes, classBytes] = await downloadAll(
     [
       { url: wasm.url, bytes: wasm.bytes },
-      { url: model.url, bytes: model.bytes },
+      { url: fast.url, bytes: fast.bytes },
+      { url: classifier.url, bytes: classifier.bytes },
     ],
     (fraction) => boot.setProgress(fraction * 0.9),
   );
+  modelBytes.set('fast', fastBytes);
+  classifierBytes = classBytes;
   boot.log(`Download concluído em ${seconds(performance.now() - downloadStarted)}`);
 
   if (wasmUrl) URL.revokeObjectURL(wasmUrl);
   wasmUrl = URL.createObjectURL(new Blob([wasmBytes], { type: 'application/wasm' }));
 
+  if (modeKey === 'precise') {
+    try {
+      boot.log('Baixando o modelo preciso (EfficientDet-Lite2)');
+      modelBytes.set('precise', await download(CONFIG.models.precise.url));
+    } catch (error) {
+      console.warn('[ARGOS] Modo preciso indisponível', error);
+      boot.log('Modo preciso indisponível agora; usando o rápido');
+      setMode('fast');
+    }
+  }
+
   const initStarted = performance.now();
-  detector?.dispose();
-  detector = await createDetector({
-    loaderUrl: absolute(CONFIG.engine.loader),
-    wasmUrl,
-    modelBytes,
-    delegate: model.delegate,
-    scoreThreshold: CONFIG.detector.scoreThreshold,
-    maxResults: CONFIG.detector.maxResults,
-    initTimeoutMs: CONFIG.detector.initTimeoutMs,
-  });
+  await buildDetector(modeKey);
   const where = detector.backend === 'worker' ? 'Web Worker' : 'thread principal';
-  engine = { short: model.delegate, title: `${model.label} em ${model.delegate}, ${where}` };
-  boot.log(`IA pronta em ${seconds(performance.now() - initStarted)} (${model.delegate}, ${where})`);
+  boot.log(`IA pronta em ${seconds(performance.now() - initStarted)} (${CONFIG.models[modeKey].label}, ${where})`);
 
   await fontsReady();
   boot.setProgress(1);
   machine.go(State.PERMISSION);
   boot.ready();
+}
+
+/** Cria (ou recria) o detector com o modelo do modo escolhido. */
+async function buildDetector(key) {
+  const model = CONFIG.models[key];
+  const next = await createDetector({
+    loaderUrl: absolute(CONFIG.engine.loader),
+    wasmUrl,
+    detector: {
+      modelBytes: modelBytes.get(key),
+      delegate: model.delegate,
+      scoreThreshold: CONFIG.detector.scoreThreshold,
+      maxResults: CONFIG.detector.maxResults,
+    },
+    classifier: classifierBytes ? { modelBytes: classifierBytes } : null,
+    initTimeoutMs: CONFIG.detector.initTimeoutMs,
+  });
+  detector?.dispose();
+  detector = next;
+  const where = detector.backend === 'worker' ? 'Web Worker' : 'thread principal';
+  engine = { short: model.label, title: `${model.label} em ${model.delegate}, ${where}` };
+}
+
+function savedMode() {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'precise' ? 'precise' : 'fast';
+  } catch {
+    return 'fast';
+  }
+}
+
+function setMode(key) {
+  modeKey = key;
+  try {
+    localStorage.setItem(MODE_KEY, key);
+  } catch {
+    // Sem armazenamento, o modo só não fica salvo.
+  }
+  updateModeButton();
 }
 
 function fontsReady() {
@@ -177,6 +250,8 @@ function enterCalibration() {
 
 function startAi() {
   stats.reset();
+  guess = null;
+  lastObjectAt = performance.now();
   runAi(++aiGeneration);
 }
 
@@ -190,7 +265,10 @@ async function runAi(generation) {
   const onMainThread = detector.backend === 'main';
   const minInterval = 1000 / (onMainThread ? CONFIG.loop.mainThreadAiHz : CONFIG.loop.maxAiHz);
   let lastSent = -Infinity;
+  let lastGuessAt = -Infinity;
+  let centerFreeSince = performance.now();
   let failures = 0;
+  views.reset();
 
   while (generation === aiGeneration) {
     // Só espera um quadro novo se a última análise foi há pouco tempo;
@@ -204,17 +282,46 @@ async function runAi(generation) {
 
     const capturedAt = performance.now();
     lastSent = capturedAt;
+    const frame = camera.frame;
+
+    // A mira está sobre algum objeto conhecido?
+    const centerTaken = tracker.tracks.some(
+      (track) => track.status === TrackStatus.CONFIRMED && containsCenter(predictBox(track, capturedAt)),
+    );
+    if (centerTaken) {
+      centerFreeSince = capturedAt;
+      guess = null;
+    }
+    if (tracker.tracks.some((track) => track.status === TrackStatus.CONFIRMED)) lastObjectAt = capturedAt;
+    if (guess && capturedAt - guess.at > CONFIG.classifier.showMs) guess = null;
+
+    const wantsGuess =
+      detector.hasClassifier &&
+      !centerTaken &&
+      capturedAt - centerFreeSince >= CONFIG.classifier.idleMs &&
+      capturedAt - lastGuessAt >= CONFIG.classifier.intervalMs;
 
     try {
-      const result = await detector.detect(ui.video, capturedAt);
-      if (generation !== aiGeneration) break;
+      if (wantsGuess) {
+        // Palpite: o classificador de 1.000 categorias olha o centro da mira.
+        lastGuessAt = capturedAt;
+        const result = await detector.classify(ui.video, centerCrop(frame, CONFIG.classifier.cropFraction));
+        if (generation !== aiGeneration) break;
+        const best = bestGuess(result.top);
+        if (best && best.score >= CONFIG.classifier.minScore) guess = { ...best, at: performance.now() };
+      } else {
+        // Alterna imagem inteira e zoom no centro (veja vision/views.js).
+        const view = views.next(frame);
+        const result = await detector.detect(ui.video, capturedAt, view.crop);
+        if (generation !== aiGeneration) break;
+        // O carimbo é o da captura: o HUD prevê a posição até "agora" e
+        // assim compensa o tempo que a IA levou para responder.
+        const events = tracker.update(result.detections, capturedAt, view.region);
+        stats.record(result.inferMs, performance.now());
+        for (const track of events.confirmed) bus.emit('object:found', track);
+        for (const track of events.lost) bus.emit('object:lost', track);
+      }
       failures = 0;
-      // O carimbo é o da captura: o HUD prevê a posição até "agora" e
-      // assim compensa o tempo que a IA levou para responder.
-      const events = tracker.update(result.detections, capturedAt);
-      stats.record(result.inferMs, performance.now());
-      for (const track of events.confirmed) bus.emit('object:found', track);
-      for (const track of events.lost) bus.emit('object:lost', track);
       if (onMainThread) await nextVideoFrame(ui.video);
     } catch (error) {
       failures += 1;
@@ -232,6 +339,11 @@ async function runAi(generation) {
       }
     }
   }
+}
+
+/** O centro da imagem (onde fica a mira) cai dentro da caixa? */
+function containsCenter(box) {
+  return box.x <= 0.5 && box.x + box.w >= 0.5 && box.y <= 0.5 && box.y + box.h >= 0.5;
 }
 
 /** Espera o próximo quadro da câmera (ou desiste em 250 ms, com a aba escondida). */
@@ -279,6 +391,65 @@ function createStats() {
 
 async function refreshSwitchButton() {
   ui.switchCamera.hidden = !(await camera.hasMultipleCameras());
+  refreshTorchButton();
+}
+
+function refreshTorchButton() {
+  ui.torch.hidden = !camera.supportsTorch;
+  ui.torch.setAttribute('aria-pressed', String(camera.torchOn));
+}
+
+async function toggleTorch() {
+  try {
+    await camera.setTorch(!camera.torchOn);
+  } catch (error) {
+    console.warn('[ARGOS] Não foi possível ligar a lanterna', error);
+  }
+  refreshTorchButton();
+}
+
+/** Alterna entre o modo rápido (Lite0) e o preciso (Lite2). */
+async function toggleMode() {
+  if (!machine.is(State.SCANNING) || ui.mode.disabled) return;
+  const target = modeKey === 'fast' ? 'precise' : 'fast';
+  ui.mode.disabled = true;
+  stopAi();
+  try {
+    if (!modelBytes.has(target)) {
+      const model = CONFIG.models[target];
+      statusOverride = 'Baixando modo preciso';
+      modelBytes.set(
+        target,
+        await download(model.url, {
+          expectedBytes: model.bytes,
+          onProgress: (received, total) => {
+            statusOverride = total
+              ? `Baixando modo preciso ${Math.round((received / total) * 100)}%`
+              : `Baixando modo preciso ${formatMegabytes(received)}`;
+          },
+        }),
+      );
+    }
+    statusOverride = 'Trocando o modelo';
+    await buildDetector(target);
+    setMode(target);
+    tracker.reset();
+    renderer.clear();
+    statusOverride = null;
+  } catch (error) {
+    console.warn('[ARGOS] Não foi possível trocar de modo', error);
+    statusOverride = 'Modo preciso indisponível agora';
+    setTimeout(() => (statusOverride = null), 3_000);
+  } finally {
+    ui.mode.disabled = false;
+  }
+  startAi();
+}
+
+function updateModeButton() {
+  const model = CONFIG.models[modeKey];
+  ui.modeName.textContent = model.name;
+  ui.mode.setAttribute('aria-label', `Modo ${model.name}. Trocar modo de detecção`);
 }
 
 async function switchCamera() {
@@ -298,6 +469,7 @@ async function switchCamera() {
   }
   tracker.reset();
   renderer.clear();
+  refreshTorchButton();
   if (!reducedMotion) glitch(ui.stage);
   startAi();
 }
@@ -387,7 +559,10 @@ async function retryCamera() {
 boot.onActivate(activate);
 ui.switchCamera.addEventListener('click', switchCamera);
 ui.theme.addEventListener('click', cycleTheme);
+ui.mode.addEventListener('click', toggleMode);
+ui.torch.addEventListener('click', toggleTorch);
 updateThemeButton();
+updateModeButton();
 
 camera.onEnded = () => {
   if (machine.is(State.SCANNING) || machine.is(State.CALIBRATION)) {
@@ -430,7 +605,7 @@ window.addEventListener('pagehide', () => {
 document.fonts?.addEventListener?.('loadingdone', resetTextMetrics);
 
 if (new URLSearchParams(location.search).has('debug')) {
-  window.ARGOS = { machine, tracker, camera, stats, renderer, bus, get detector() { return detector; } };
+  window.ARGOS = { machine, tracker, camera, stats, renderer, bus, get detector() { return detector; }, get guess() { return guess; }, set guess(value) { guess = value; }, get mode() { return modeKey; } };
 }
 
 installNoise();

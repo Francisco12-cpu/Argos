@@ -66,6 +66,21 @@
           <p class="visually-hidden" aria-live="polite" data-summary></p>
         </div>
         <div class="controls">
+          <button type="button" class="hud-button" data-action="torch" aria-label="Lanterna" aria-pressed="false" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+              <path d="M8 3h8l-1.5 5h-5Z"/>
+              <path d="M9.5 8v11a2.5 2.5 0 0 0 5 0V8"/>
+              <path d="M12 12v3" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button type="button" class="hud-button hud-button--wide" data-action="mode" aria-label="Trocar modo de detecção">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="7.5"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-linecap="round"/>
+            </svg>
+            <span data-mode-name>Rápido</span>
+          </button>
           <button type="button" class="hud-button" data-action="switch-camera" aria-label="Trocar câmera" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4.5 11a7.5 7.5 0 0 1 13-4.6L19.5 8.5"/>
@@ -108,6 +123,7 @@
           <span class="activate-label" data-activate-label>Carregando a IA 0%</span>
         </button>
         <p class="privacy">A IA roda no seu aparelho. Nenhuma imagem sai daqui.</p>
+        <a class="text-button" href="bench.html">Testar os acertos com fotos</a>
       </div>
 
       <ol class="boot-log" data-log aria-live="polite"></ol>

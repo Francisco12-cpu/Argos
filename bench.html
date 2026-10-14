@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ARGOS · teste de acertos</title>
+  <meta name="description" content="Compare os modos de reconhecimento do ARGOS com fotos suas.">
+  <meta name="theme-color" content="#04050E">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="src/styles/bench.css">
+  <script type="module" src="src/bench/bench.js"></script>
+</head>
+<body>
+  <main class="bench">
+    <header class="bench-head">
+      <a class="back" href="./">← Voltar ao visor</a>
+      <h1>Teste de acertos</h1>
+      <p class="lead">Escolha fotos de objetos da sua casa e escreva o que tem em cada uma. O ARGOS analisa todas de três jeitos e mostra quantas cada jeito acertou. As fotos não saem do aparelho.</p>
+    </header>
+
+    <section class="panel">
+      <label class="file">
+        <input type="file" accept="image/*" multiple data-files>
+        <span>Escolher fotos</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" data-precise>
+        <span>Incluir o modo preciso (baixa cerca de 7 MB)</span>
+      </label>
+      <button type="button" class="run" data-run disabled>Analisar</button>
+      <p class="status" data-status aria-live="polite">Carregando a IA…</p>
+    </section>
+
+    <ol class="photos" data-photos></ol>
+
+    <section class="panel summary" data-summary hidden>
+      <h2>Resultado</h2>
+      <table>
+        <thead><tr><th>Jeito</th><th>Acertos</th><th>Tempo médio</th></tr></thead>
+        <tbody data-summary-body></tbody>
+      </table>
+      <p class="note">Conta como acerto quando o nome que você escreveu aparece entre o que o ARGOS encontrou (com o palpite, vale o melhor palpite).</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -33,6 +33,7 @@ const DEFAULTS = Object.freeze({
   voteDecay: 0.85,
   scoreSmoothing: 0.35,
   maxPredictMs: 250,
+  weakMs: 700,
   filter: {
     position: { minCutoff: 1.2, beta: 8, dCutoff: 1 },
     size: { minCutoff: 0.8, beta: 4, dCutoff: 1 },
@@ -44,6 +45,24 @@ const DEFAULTS = Object.freeze({
 /** Bônus de prioridade no casamento detecção ↔ objeto. */
 const SAME_LABEL_BONUS = 0.15;
 const CONFIRMED_BONUS = 0.05;
+
+const FULL_FRAME = Object.freeze({ x: 0, y: 0, w: 1, h: 1 });
+
+/**
+ * A análise "viu" o lugar do objeto? Só se a caixa estiver quase toda dentro
+ * da região e couber nela com folga (objetos maiores que o recorte não são
+ * reconhecidos nele).
+ */
+export function isCovered(box, region) {
+  if (region === FULL_FRAME || (region.x <= 0 && region.y <= 0 && region.w >= 1 && region.h >= 1)) return true;
+  if (box.w > region.w * 0.9 || box.h > region.h * 0.9) return false;
+  const left = Math.max(box.x, region.x);
+  const top = Math.max(box.y, region.y);
+  const right = Math.min(box.x + box.w, region.x + region.w);
+  const bottom = Math.min(box.y + box.h, region.y + region.h);
+  const inside = Math.max(0, right - left) * Math.max(0, bottom - top);
+  return inside >= box.w * box.h * 0.9;
+}
 
 export const formatCode = (n) => `OBJ-${String(n).padStart(4, '0')}`;
 
@@ -66,6 +85,7 @@ export class Tracker {
   #tracks = [];
   #nextId = 1;
   #nextCode = 1;
+  #weak = [];
 
   constructor(options = {}) {
     this.#options = {
@@ -89,9 +109,18 @@ export class Tracker {
     return this.#tracks.filter((track) => track.status !== TrackStatus.TENTATIVE);
   }
 
+  /**
+   * Detecções fracas recentes (confiança entre minScoreKeep e minScoreNew)
+   * que não pertencem a nenhum objeto: o HUD as mostra como dúvida.
+   */
+  get weak() {
+    return this.#weak;
+  }
+
   /** Esquece os objetos atuais. A numeração dos códigos continua. */
   reset() {
     this.#tracks = [];
+    this.#weak = [];
   }
 
   /**
@@ -99,9 +128,11 @@ export class Tracker {
    * @param {Array<{label: string, score: number, box: {x:number,y:number,w:number,h:number}}>} detections
    *   Caixas em fração do quadro.
    * @param {number} timeMs Instante em que o quadro foi capturado.
+   * @param {{x:number,y:number,w:number,h:number}} [region] Parte do quadro que esta análise
+   *   olhou (padrão: o quadro inteiro). Objetos fora dela não contam como "não vistos".
    * @returns {{confirmed: object[], revived: object[], lost: object[], removed: object[]}}
    */
-  update(detections, timeMs) {
+  update(detections, timeMs, region = FULL_FRAME) {
     const o = this.#options;
     const events = { confirmed: [], revived: [], lost: [], removed: [] };
 
@@ -143,7 +174,14 @@ export class Tracker {
     // 3. Objetos que não apareceram nesta análise.
     const survivors = [];
     this.#tracks.forEach((track, trackIndex) => {
-      if (!matchedTracks.has(trackIndex)) {
+      const lostTooLong = track.status === TrackStatus.LOST && timeMs - track.lostAt >= o.fadeMs;
+      if (!matchedTracks.has(trackIndex) && !isCovered(predictBox(track, timeMs, o.maxPredictMs), region)) {
+        // A análise não olhou para onde o objeto está: nada muda, só o fade continua.
+        if (lostTooLong) {
+          events.removed.push(track);
+          return;
+        }
+      } else if (!matchedTracks.has(trackIndex)) {
         track.misses += 1;
         track.streak = 0;
         if (track.status === TrackStatus.TENTATIVE) {
@@ -164,15 +202,28 @@ export class Tracker {
     });
     this.#tracks = survivors;
 
-    // 4. Detecções novas e confiantes viram candidatos a objeto.
+    // 4. Detecções novas e confiantes viram candidatos a objeto; as fracas
+    // ficam um instante na lista de dúvidas.
+    this.#weak = this.#weak.filter((entry) => timeMs - entry.at < o.weakMs);
     candidates.forEach((detection, detectionIndex) => {
-      if (matchedDetections.has(detectionIndex) || detection.score < o.minScoreNew) return;
+      if (matchedDetections.has(detectionIndex)) return;
+      if (detection.score < o.minScoreNew) {
+        this.#rememberWeak(detection, timeMs);
+        return;
+      }
       const track = this.#create(detection, timeMs);
       if (track.streak >= o.confirmHits) this.#confirm(track, timeMs, events);
       this.#tracks.push(track);
     });
 
     return events;
+  }
+
+  #rememberWeak(detection, timeMs) {
+    const entry = { label: detection.label, score: detection.score, box: detection.box, at: timeMs };
+    const same = this.#weak.findIndex((w) => w.label === entry.label && iou(w.box, entry.box) > 0.4);
+    if (same >= 0) this.#weak[same] = entry;
+    else this.#weak.push(entry);
   }
 
   #create(detection, timeMs) {

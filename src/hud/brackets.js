@@ -193,3 +193,55 @@ export function drawLabel(ctx, rect, { code, name, score, palette, alpha, reveal
   }
   ctx.restore();
 }
+
+/**
+ * Dúvida: algo que a IA talvez tenha visto, com pouca confiança.
+ * Retângulo tracejado e um rótulo curto com "?".
+ */
+export function drawCandidate(ctx, box, { palette, alpha, text }) {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.setLineDash([5, 5]);
+  ctx.lineWidth = 1.25;
+  ctx.strokeStyle = rgba(palette.text, 0.55 * alpha);
+  ctx.strokeRect(box.x + 0.5, box.y + 0.5, Math.max(box.w - 1, 0), Math.max(box.h - 1, 0));
+  ctx.setLineDash([]);
+  if (text) {
+    ctx.font = DATA_FONT;
+    const label = `? ${text}`;
+    const width = measure(ctx, DATA_FONT, label) + 10;
+    const y = Math.max(0, box.y - 18);
+    ctx.fillStyle = rgba(palette.ink, 0.62 * alpha);
+    ctx.fillRect(box.x, y, width, 16);
+    ctx.fillStyle = rgba(palette.text, 0.85 * alpha);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, box.x + 5, y + 8.5);
+  }
+  ctx.restore();
+}
+
+/**
+ * Legenda centralizada sob a mira: palpite do classificador ou dica.
+ * @param {{kicker: string, text: string, palette: object, alpha: number, accent?: boolean}} options
+ */
+export function drawCaption(ctx, cx, top, { kicker, text, palette, alpha, accent = false }) {
+  if (alpha <= 0.01) return;
+  ctx.save();
+  ctx.textBaseline = 'alphabetic';
+  const kickerWidth = measure(ctx, DATA_FONT, kicker);
+  const textWidth = measure(ctx, NAME_FONT, text, NAME_SPACING);
+  const width = Math.ceil(Math.max(kickerWidth, textWidth) + PAD_X * 2 + 4);
+  const x = cx - width / 2;
+  ctx.fillStyle = rgba(palette.ink, 0.72 * alpha);
+  ctx.fillRect(x, top, width, PLATE_H);
+  ctx.fillStyle = rgba(accent ? palette.accent : palette.primary, alpha);
+  ctx.fillRect(x, top, width, 2);
+  ctx.font = DATA_FONT;
+  ctx.fillStyle = rgba(accent ? palette.accent : palette.primary, 0.95 * alpha);
+  ctx.fillText(kicker, cx - kickerWidth / 2, top + LINE_1 + 2);
+  ctx.font = NAME_FONT;
+  if (supportsLetterSpacing) ctx.letterSpacing = NAME_SPACING;
+  ctx.fillStyle = rgba(palette.text, alpha);
+  ctx.fillText(text, cx - textWidth / 2, top + LINE_2 + 2);
+  ctx.restore();
+}

@@ -416,6 +416,33 @@ button {
   flex: none;
 }
 
+.hud-button[aria-pressed='true'] {
+  background: var(--warn);
+  color: var(--warn);
+}
+
+.hud-button[aria-pressed='true']::before {
+  background: color-mix(in srgb, var(--warn) 22%, var(--ink));
+}
+
+/* Em telas estreitas, o botão de tema mostra só o ícone. */
+@media (max-width: 520px) {
+  .hud-button[data-action='theme'] span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .hud-button[data-action='theme'] {
+    padding: 0;
+  }
+  .controls {
+    gap: 8px;
+  }
+}
+
 .hud-button span {
   color: var(--text);
 }

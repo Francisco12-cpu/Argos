@@ -24,10 +24,14 @@
 ## O que ele faz
 
 - Reconhece 80 tipos de objeto do dia a dia (pessoa, celular, garrafa, cadeira, notebook, carro, cachorro...), com os nomes em português.
+- Dá um **palpite** sobre o que está na mira quando não é um desses 80: um segundo modelo conhece 1.000 categorias (caneta, óculos de sol, carteira, tênis, violão...).
+- Usa um **zoom de análise**: alterna a imagem inteira com um recorte do centro em alta resolução, o que ajuda muito com objetos pequenos.
+- Tem um **modo preciso** (EfficientDet-Lite2), para quando acertar importa mais que a velocidade.
+- Mostra a **dúvida**: o que a IA viu com pouca confiança aparece tracejado, e a mira pede para aproximar quando não acha nada.
 - Marca cada objeto com cantoneiras e uma etiqueta: código, nome e confiança, como `OBJ-0007` `CADEIRA` `92%`.
 - Mantém o mesmo código enquanto o objeto está em cena e tira o tremor das caixas.
-- Desenha o HUD a 60 quadros por segundo, mesmo com a IA fazendo de 7 a 10 análises por segundo.
-- Tem três temas: Cyberpunk, Tático e Armadura.
+- Desenha o HUD a 60 quadros por segundo, independente do ritmo da IA.
+- Tem três temas (Cyberpunk, Tático e Armadura) e lanterna, nos celulares que permitem.
 - Abre no navegador do celular ou do computador, sem instalar nada.
 
 ## Como funciona
@@ -47,6 +51,11 @@ flowchart LR
 - **Um objeto só aparece depois de 3 análises seguidas** e continua na tela por até 10 análises sem ser visto, apagando aos poucos. Isso elimina o pisca-pisca de falsos positivos.
 - **Entre uma análise e outra, o HUD prevê a posição** pela velocidade medida de cada objeto, o que também compensa o tempo que a IA leva para responder.
 - **Nomes parecidos contam como o mesmo objeto** (copo e tigela, carro e caminhão). Se no lugar de uma pessoa aparece uma bicicleta, ela ganha código novo.
+- **No zoom de análise, objetos fora do recorte não contam como sumidos**: o rastreador sabe que parte da imagem cada análise olhou.
+
+## Teste de acertos
+
+A [página de teste](https://francisco12-cpu.github.io/Argos/bench.html) analisa fotos suas de três jeitos (imagem inteira, com zoom e palpite) e mostra quantas cada jeito acertou. Com 10 fotos de objetos pequenos no meio da cena, a imagem inteira acertou 2 e o zoom acertou 8.
 
 ## Privacidade
 
@@ -78,7 +87,7 @@ O site sai em `https://SEU-USUARIO.github.io/Argos/`, e cada push na `main` roda
 npm test
 ```
 
-São 50 testes automáticos (rastreador, filtro One Euro, geometria, rótulos, máquina de estados, downloads e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
+São 69 testes automáticos (rastreador, zoom de análise, palpites, filtro One Euro, geometria, rótulos, máquina de estados, downloads e resumo para leitores de tela), rodados também no GitHub Actions a cada push.
 
 ## Desempenho
 
@@ -86,10 +95,12 @@ Medido no Chromium, num servidor de 2 núcleos; o número real do seu celular ap
 
 | Medida | Valor |
 | --- | --- |
-| Tempo da IA por análise | 105 a 150 ms (CPU, modelo int8) |
-| Análises por segundo | 7 a 10 |
+| Tempo da IA por análise | 75 a 130 ms (CPU, modelo int8) |
+| Análises por segundo | 8 a 12 |
+| Palpite do classificador | 30 a 80 ms |
 | Quadros do HUD | cerca de 60 por segundo |
-| Download no primeiro acesso | 18,2 MB sem compressão (motor 13,0 MB, modelo 4,5 MB) |
+| Download no primeiro acesso | 21,8 MB sem compressão (motor 13,0 MB, detector 4,5 MB, classificador 3,6 MB) |
+| Modo preciso | mais cerca de 7 MB, baixados só quando ligado |
 
 ## Estrutura
 
@@ -101,10 +112,12 @@ src/
   vision/                 câmera, download, detector (worker), rastreador, geometria
   hud/                    canvas: cantoneiras, etiquetas, mira, temas, efeitos
   ui/                     abertura, telemetria, tela de erro
-  data/                   nomes em português e grupos de nomes parecidos
+  bench/                  página de teste de acertos
+  data/                   nomes em português, palpites e grupos de nomes parecidos
   styles/main.css
 vendor/mediapipe/         MediaPipe Tasks Vision 1.1.0 (versão fixa)
-models/                   EfficientDet-Lite0 int8 e lista de rótulos
+models/                   EfficientDet-Lite0 e MobileNetV2 (int8) e listas de rótulos
+bench.html                página de teste de acertos
 assets/                   fontes e ícones
 tests/                    testes com node --test
 scripts/serve.mjs         servidor local sem dependências
@@ -115,6 +128,7 @@ scripts/serve.mjs         servidor local sem dependências
 - [x] Fase 0: fundação (repositório, testes, publicação automática)
 - [x] Fase 1: visão (câmera, IA no worker, nomes em português)
 - [x] Fase 2: HUD (abertura, mira, cantoneiras, etiquetas, temas, efeitos)
+- [x] Melhorias de reconhecimento: zoom de análise, palpites, modo preciso, dúvidas, câmera 1080p e lanterna, página de teste
 - [ ] Fase 3: inteligência (travamento de alvo, fichas, distância, registro); o rastreador já está pronto
 - [ ] Fase 4: sentidos (sons, voz do Javis, foto e clipe)
 - [ ] Fase 5: polimento (offline, modo adaptativo, acessibilidade)
@@ -123,7 +137,8 @@ scripts/serve.mjs         servidor local sem dependências
 ## Créditos
 
 - [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector) (Google), Apache 2.0.
-- EfficientDet-Lite0 treinado no [COCO](https://cocodataset.org), via [TensorFlow Lite Support](https://github.com/tensorflow/tflite-support), Apache 2.0.
+- EfficientDet-Lite0 treinado no [COCO](https://cocodataset.org) e MobileNetV2 treinado no ImageNet, via [TensorFlow Lite Support](https://github.com/tensorflow/tflite-support), Apache 2.0.
+- EfficientDet-Lite2 do modo preciso, baixado do [servidor oficial do MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector), Apache 2.0.
 - Fontes [Orbitron](https://github.com/theleagueof/orbitron) e Share Tech Mono, SIL Open Font License 1.1.
 - Fotos da animação, do acervo do [scikit-image](https://scikit-image.org/docs/stable/api/skimage.data.html): astronauta Eileen Collins (NASA, domínio público), xícara de café (Rachel Michetti, CC0) e a gata Chelsea (Stefan van der Walt, CC0).
 

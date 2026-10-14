@@ -1,12 +1,13 @@
 /**
  * Worker da IA. Roda o MediaPipe fora da thread principal para que o HUD
- * continue a 60 quadros por segundo enquanto o modelo analisa a câmera.
+ * continue a 60 quadros por segundo enquanto os modelos analisam a câmera.
  *
  * Protocolo:
- *   → { type: 'init', options }            ← { type: 'ready' } | { type: 'init-error', message }
+ *   → { type: 'init', options }            ← { type: 'ready', hasClassifier } | { type: 'init-error', message }
  *   → { type: 'detect', id, bitmap, timestamp }
  *                                           ← { type: 'result', id, detections, inferMs }
- *                                           ← { type: 'detect-error', id, message }
+ *   → { type: 'classify', id, bitmap }      ← { type: 'result', id, top, inferMs }
+ *                                           ← { type: 'task-error', id, message }
  *   → { type: 'dispose' }
  */
 import { createEngine } from './mediapipe-engine.js';
@@ -20,20 +21,24 @@ self.addEventListener('message', async ({ data: message }) => {
     case 'init': {
       try {
         engine = await createEngine(message.options);
-        self.postMessage({ type: 'ready' });
+        self.postMessage({ type: 'ready', hasClassifier: engine.hasClassifier });
       } catch (error) {
         self.postMessage({ type: 'init-error', message: describe(error) });
       }
       break;
     }
-    case 'detect': {
-      const { id, bitmap, timestamp } = message;
+    case 'detect':
+    case 'classify': {
+      const { id, bitmap } = message;
       try {
         if (!engine) throw new Error('IA ainda não iniciada');
-        const output = engine.detect(bitmap, bitmap.width, bitmap.height, timestamp);
+        const output =
+          message.type === 'detect'
+            ? engine.detect(bitmap, bitmap.width, bitmap.height, message.timestamp)
+            : engine.classify(bitmap);
         self.postMessage({ type: 'result', id, ...output });
       } catch (error) {
-        self.postMessage({ type: 'detect-error', id, message: describe(error) });
+        self.postMessage({ type: 'task-error', id, message: describe(error) });
       } finally {
         bitmap.close();
       }

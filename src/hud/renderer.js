@@ -6,9 +6,9 @@
  * na tela evita saltos quando chega uma análise nova.
  */
 import { labelPt } from '../data/labels-pt.js';
-import { clamp, createScreenMapper, intersect } from '../vision/geometry.js';
+import { clamp, createScreenMapper, intersect, iou } from '../vision/geometry.js';
 import { predictBox, TrackStatus } from '../vision/tracker.js';
-import { drawBrackets, drawLabel, placeLabel } from './brackets.js';
+import { drawBrackets, drawCandidate, drawCaption, drawLabel, placeLabel } from './brackets.js';
 import { easeOutCubic, progress } from './easing.js';
 import { drawReticle } from './reticle.js';
 
@@ -35,6 +35,7 @@ export class HudRenderer {
   #palette;
   #fadeMs;
   #maxPredictMs;
+  #weakMs;
   #reducedMotion;
   #view = { w: 0, h: 0 };
   #insets = { top: 0, bottom: 0 };
@@ -51,13 +52,14 @@ export class HudRenderer {
    * @param {HTMLCanvasElement} canvas
    * @param {{source: HudSource, palette: object, fadeMs: number, maxPredictMs: number, reducedMotion: boolean}} options
    */
-  constructor(canvas, { source, palette, fadeMs, maxPredictMs, reducedMotion }) {
+  constructor(canvas, { source, palette, fadeMs, maxPredictMs, weakMs = 700, reducedMotion }) {
     this.#canvas = canvas;
     this.#ctx = canvas.getContext('2d');
     this.#source = source;
     this.#palette = palette;
     this.#fadeMs = fadeMs;
     this.#maxPredictMs = maxPredictMs;
+    this.#weakMs = weakMs;
     this.#reducedMotion = reducedMotion;
     this.resize();
   }
@@ -143,6 +145,52 @@ export class HudRenderer {
       intro,
       motion: !this.#reducedMotion,
     });
+    this.#drawCaption(ctx, now, w / 2, h / 2 + radius + 14);
+  }
+
+  /** Sob a mira: o palpite do classificador ou a dica de aproximar. */
+  #drawCaption(ctx, now, cx, top) {
+    const guess = this.#source.guess?.();
+    if (guess) {
+      const alpha = easeOutCubic(progress(now, guess.at, 250));
+      drawCaption(ctx, cx, top, {
+        kicker: `PALPITE · ${Math.round(guess.score * 100)}%`,
+        text: guess.name.toLocaleUpperCase('pt-BR'),
+        palette: this.#palette,
+        alpha,
+        accent: true,
+      });
+      return;
+    }
+    if (this.#source.hint?.()) {
+      const pulse = this.#reducedMotion ? 1 : 0.7 + 0.3 * Math.sin(now / 320);
+      drawCaption(ctx, cx, top, {
+        kicker: 'NADA À VISTA',
+        text: 'APROXIME O OBJETO',
+        palette: this.#palette,
+        alpha: pulse,
+      });
+    }
+  }
+
+  /**
+   * Dúvidas: objetos ainda não confirmados e detecções fracas aparecem
+   * tracejados, em vez de simplesmente não existirem.
+   */
+  #drawDoubts(ctx, now, toScreen) {
+    const tracks = this.#source.tracks();
+    const solid = tracks.filter((track) => track.status !== TrackStatus.TENTATIVE);
+    const palette = this.#palette;
+    for (const track of tracks) {
+      if (track.status !== TrackStatus.TENTATIVE) continue;
+      drawCandidate(ctx, toScreen(track.box), { palette, alpha: 0.7 });
+    }
+    for (const weak of this.#source.weak?.() ?? []) {
+      if (solid.some((track) => iou(track.box, weak.box) > 0.3)) continue;
+      const alpha = 1 - clamp((now - weak.at) / this.#weakMs, 0, 1);
+      const text = `${labelPt(weak.label).toLocaleUpperCase('pt-BR')} ${Math.round(weak.score * 100)}%`;
+      drawCandidate(ctx, toScreen(weak.box), { palette, alpha, text });
+    }
   }
 
   #drawTracks(ctx, now, dt, frame) {
@@ -183,6 +231,7 @@ export class HudRenderer {
     }
 
     items.sort((a, b) => a.box.y - b.box.y);
+    this.#drawDoubts(ctx, now, toScreen);
 
     for (const { box, since, alpha, appear } of items) {
       drawBrackets(ctx, box, {

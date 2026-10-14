@@ -14,7 +14,7 @@ function deepFreeze(value) {
 export const CONFIG = deepFreeze({
   app: {
     name: 'ARGOS',
-    version: '0.2.0',
+    version: '0.3.0',
   },
 
   /** Motor de IA (MediaPipe Tasks Vision 1.1.0), servido pelo próprio site. */
@@ -27,18 +27,51 @@ export const CONFIG = deepFreeze({
   },
 
   /**
-   * Modelos em ordem de preferência. Por enquanto só o EfficientDet-Lite0 int8,
-   * que roda na CPU (o delegate de GPU não aceita modelos quantizados).
+   * Detectores disponíveis. O padrão vem dentro do repositório; o "modo
+   * preciso" baixa o EfficientDet-Lite2 do servidor oficial do MediaPipe.
+   * Os dois são int8 e rodam na CPU (o delegate de GPU não aceita int8).
    */
-  models: [
-    {
+  models: {
+    fast: {
       id: 'efficientdet-lite0-int8',
-      label: 'EFFDET-L0',
+      label: 'LITE0',
+      name: 'Rápido',
       url: 'models/efficientdet_lite0_int8.tflite',
       bytes: 4_544_599,
       delegate: 'CPU',
     },
-  ],
+    precise: {
+      id: 'efficientdet-lite2-int8',
+      label: 'LITE2',
+      name: 'Preciso',
+      url: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/latest/efficientdet_lite2.tflite',
+      bytes: 0,
+      delegate: 'CPU',
+    },
+  },
+
+  /** Classificador de 1.000 categorias (ImageNet), para palpites na mira. */
+  classifier: {
+    url: 'models/mobilenet_v2_int8.tflite',
+    bytes: 3_577_760,
+    /** Lado do recorte analisado, em fração do menor lado do quadro. */
+    cropFraction: 0.4,
+    /** Tempo mínimo entre palpites. */
+    intervalMs: 700,
+    /** Mira sem objeto por esse tempo antes de pedir um palpite. */
+    idleMs: 600,
+    /** Confiança mínima para mostrar o palpite. */
+    minScore: 0.3,
+    /** Por quanto tempo um palpite continua na tela. */
+    showMs: 2_000,
+  },
+
+  /** Zoom de análise: alterna imagem inteira e recorte do centro. */
+  views: {
+    enabled: true,
+    cropFraction: 0.55,
+    minFrameSide: 480,
+  },
 
   detector: {
     /** Corte mínimo pedido ao modelo; o rastreador decide o resto. */
@@ -70,6 +103,8 @@ export const CONFIG = deepFreeze({
     voteDecay: 0.85,
     /** Suavização da confiança exibida (0 = parada, 1 = sem suavizar). */
     scoreSmoothing: 0.35,
+    /** Por quanto tempo uma detecção fraca aparece como dúvida. */
+    weakMs: 700,
     /** Até quanto tempo à frente a posição é prevista pela velocidade. */
     maxPredictMs: 250,
     /** Filtro One Euro, em unidades normalizadas (fração do quadro). */
@@ -90,6 +125,8 @@ export const CONFIG = deepFreeze({
 
   ui: {
     defaultTheme: 'cyberpunk',
+    /** Sem nenhum objeto por esse tempo, a mira sugere aproximar. */
+    hintAfterMs: 4_000,
     calibrationMs: 1_100,
     telemetryHz: 4,
   },

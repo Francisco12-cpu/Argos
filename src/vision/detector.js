@@ -5,13 +5,19 @@
  * trocado (outro modelo, outro framework) sem mexer no HUD ou no rastreador.
  *
  * @typedef {{label: string, score: number, box: {x: number, y: number, w: number, h: number}}} Detection
- *   Caixa em fração do quadro (0 a 1).
+ *   Caixa em fração do quadro inteiro (0 a 1).
+ *
+ * @typedef {{x: number, y: number, w: number, h: number}} Crop
+ *   Recorte do quadro, em pixels da câmera.
  *
  * @typedef {object} Detector
  * @property {'worker'|'main'} backend Onde a IA está rodando.
- * @property {(video: HTMLVideoElement, timestampMs: number) => Promise<{detections: Detection[], inferMs: number}>} detect
+ * @property {boolean} hasClassifier   Se o classificador de 1.000 categorias carregou.
+ * @property {(video: HTMLVideoElement, timestampMs: number, crop?: Crop) => Promise<{detections: Detection[], inferMs: number}>} detect
+ * @property {(video: HTMLVideoElement, crop: Crop) => Promise<{top: Array<{index: number, score: number}>, inferMs: number}>} classify
  * @property {() => void} dispose
  */
+import { cropToFrame } from './views.js';
 
 /**
  * Cria o detector no Web Worker; se o navegador não permitir, usa a
@@ -30,6 +36,7 @@ export async function createDetector(options) {
 
 class WorkerDetector {
   backend = 'worker';
+  hasClassifier = false;
   #worker;
   #pending = new Map();
   #sequence = 0;
@@ -64,25 +71,38 @@ class WorkerDetector {
   #init(engineOptions, timeoutMs) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('A IA demorou demais para iniciar.')), timeoutMs);
-      this.#onInit = (error) => {
+      this.#onInit = (error, hasClassifier) => {
         clearTimeout(timer);
         this.#onInit = null;
+        this.hasClassifier = Boolean(hasClassifier);
         if (error) reject(error);
         else resolve();
       };
-      // A cópia do modelo é proposital: se o worker falhar, a thread
+      // A cópia dos modelos é proposital: se o worker falhar, a thread
       // principal ainda tem os bytes para tentar de novo.
       this.#worker.postMessage({ type: 'init', options: engineOptions });
     });
   }
 
-  async detect(video, timestampMs) {
+  async detect(video, timestampMs, crop) {
+    const frame = { w: video.videoWidth, h: video.videoHeight };
+    const area = crop ?? { x: 0, y: 0, ...frame };
+    const result = await this.#run('detect', video, area, { timestamp: timestampMs });
+    return { inferMs: result.inferMs, detections: cropToFrame(result.detections, area, frame) };
+  }
+
+  async classify(video, crop) {
+    const result = await this.#run('classify', video, crop);
+    return { inferMs: result.inferMs, top: result.top };
+  }
+
+  async #run(type, video, area, extra = {}) {
     if (this.#failure) throw this.#failure;
-    const bitmap = await grabFrame(video);
+    const bitmap = await grabFrame(video, area);
     const id = ++this.#sequence;
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
-      this.#worker.postMessage({ type: 'detect', id, bitmap, timestamp: timestampMs }, [bitmap]);
+      this.#worker.postMessage({ type, id, bitmap, ...extra }, [bitmap]);
     });
   }
 
@@ -95,21 +115,18 @@ class WorkerDetector {
   #handle(message) {
     switch (message.type) {
       case 'ready':
-        this.#onInit?.();
+        this.#onInit?.(null, message.hasClassifier);
         break;
       case 'init-error':
         this.#onInit?.(new Error(message.message));
         break;
       case 'result':
-      case 'detect-error': {
+      case 'task-error': {
         const pending = this.#pending.get(message.id);
         if (!pending) return;
         this.#pending.delete(message.id);
-        if (message.type === 'result') {
-          pending.resolve({ detections: message.detections, inferMs: message.inferMs });
-        } else {
-          pending.reject(new Error(message.message));
-        }
+        if (message.type === 'result') pending.resolve(message);
+        else pending.reject(new Error(message.message));
         break;
       }
       default:
@@ -138,8 +155,29 @@ class MainThreadDetector {
     this.#engine = engine;
   }
 
-  async detect(video, timestampMs) {
-    return this.#engine.detect(video, video.videoWidth, video.videoHeight, timestampMs);
+  get hasClassifier() {
+    return this.#engine.hasClassifier;
+  }
+
+  async detect(video, timestampMs, crop) {
+    const frame = { w: video.videoWidth, h: video.videoHeight };
+    const area = crop ?? { x: 0, y: 0, ...frame };
+    const bitmap = await grabFrame(video, area);
+    try {
+      const result = this.#engine.detect(bitmap, bitmap.width, bitmap.height, timestampMs);
+      return { inferMs: result.inferMs, detections: cropToFrame(result.detections, area, frame) };
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  async classify(video, crop) {
+    const bitmap = await grabFrame(video, crop);
+    try {
+      return this.#engine.classify(bitmap);
+    } finally {
+      bitmap.close();
+    }
   }
 
   dispose() {
@@ -149,16 +187,17 @@ class MainThreadDetector {
 
 let fallbackCanvas = null;
 
-/** Captura o quadro atual do vídeo como ImageBitmap (transferível ao worker). */
-async function grabFrame(video) {
+/** Captura um trecho do quadro atual como ImageBitmap (transferível ao worker). */
+async function grabFrame(video, area) {
+  const { x, y, w, h } = area;
   try {
-    return await createImageBitmap(video);
+    return await createImageBitmap(video, x, y, w, h);
   } catch {
     // Alguns navegadores não criam bitmap direto do <video>: passa por um canvas.
     fallbackCanvas ??= document.createElement('canvas');
-    fallbackCanvas.width = video.videoWidth;
-    fallbackCanvas.height = video.videoHeight;
-    fallbackCanvas.getContext('2d').drawImage(video, 0, 0);
+    fallbackCanvas.width = w;
+    fallbackCanvas.height = h;
+    fallbackCanvas.getContext('2d').drawImage(video, x, y, w, h, 0, 0, w, h);
     return createImageBitmap(fallbackCanvas);
   }
 }
